@@ -1,0 +1,2 @@
+# Runtime (versions with macOS 11 / Intel x86_64 wheels)
+PySide6-Essentials==6.7.3
