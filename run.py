@@ -36,6 +36,8 @@ def selftest():
     report["catalog"] = len(prov.items)
     # Modrinth: hit normalisation + offline .mrpack install from a local http server (sha1, overrides, traversal)
     report["mrpack"] = _mrpack_test(tmp)
+    # game files + Java + Fabric-style loader from a local server, then the launch command run with a fake java
+    report["launch"] = _launch_test(tmp)
     from eta import theme
     from eta.modrinth import normalize
 
@@ -47,8 +49,7 @@ def selftest():
     assert glass["bg"] == "transparent" and glass["card"].startswith("rgba(") and glass["dialog"] != "transparent"
     assert theme.compose(theme.DARK, {})["accent"] == "#D97757"
 
-    from eta.ui import (AddAccountDialog, CreateInstanceDialog, InstallDialog, LaunchDialog, MainWindow,
-                        ProjectDialog)
+    from eta.ui import AddAccountDialog, CreateInstanceDialog, InstallDialog, MainWindow, ProjectDialog
 
     settings = Settings()
     instances = InstanceStore()
@@ -100,7 +101,7 @@ def selftest():
     ci = CreateInstanceDialog(win)
     ci.name.setText("Выживание")
     ci.loader = "quilt"
-    inst = instances.add(ci.name.text(), ci.version.currentData(), ci.loader)
+    inst = instances.add(ci.name.text(), "t1", "fabric")
     win.select_instance(inst["id"], go_home=False)
     mp.show_tab("mine")
     app.processEvents()
@@ -114,13 +115,13 @@ def selftest():
     acc2 = accounts.add_offline("Alex_2")
     win.select_account(acc2["uuid"])
     assert win.account()["name"] == "Alex_2"
-    # launch dialog (demo flow)
-    ld = LaunchDialog(win, inst, acc2)
-    t0 = time.monotonic()
-    while ld.bar.value() < 100 and time.monotonic() - t0 < 6:
-        app.processEvents()
-        time.sleep(0.002)
-    assert ld.bar.value() == 100
+    # launch dialog: real pipeline against the local server (patched in _launch_test), fake java exits at once
+    settings.update(show_console=True)
+    ld = win.launch(inst)
+    wait(app, lambda: ld.phase == "done", "launch dialog", timeout=20)
+    assert "--username Alex_2" in ld.console.toPlainText() and inst["id"] not in win.games
+    assert ld.stage.text() == "Игра закрыта" and instances.get(inst["id"])["loader_version"] == "0.1"
+    settings.update(show_console=False)
     # look: glass over a scene, sidebar on the right, hidden sidebar (rail)
     settings.update(accent="#7BA05B", backdrop="scene:aurora", glass=True, sidebar_side="right")
     win.apply_theme()
@@ -153,6 +154,135 @@ def wait(app, cond, what, timeout=5):
             raise AssertionError(f"timeout: {what}")
         app.processEvents()
         time.sleep(0.005)
+
+
+def _launch_test(tmp):
+    """A local 'Mojang': version manifest, version JSON, client jar, a library, a natives jar, assets, a log config,
+    a Java runtime whose bin/java is a shell script, and a Fabric-like meta. launch.* URLs are pointed at it."""
+    import hashlib
+    import http.server
+    import json
+    import os
+    import subprocess
+    import threading
+    import zipfile
+    from pathlib import Path
+
+    from eta import launch
+
+    import io
+
+    files = {}   # url path → bytes (a dict, because /versions/loader is both a file and a folder in Fabric's meta)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            data = files.get(self.path.split("?")[0].lstrip("/"))
+            self.send_response(200 if data is not None else 404)
+            self.send_header("Content-Length", str(len(data or b"")))
+            self.end_headers()
+            self.wfile.write(data or b"")
+
+        def log_message(self, *a):
+            pass
+
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def put(rel, data):
+        data = data if isinstance(data, bytes) else data.encode("utf-8")
+        files[rel] = data
+        return {"url": f"{base}/{rel}", "sha1": hashlib.sha1(data).hexdigest(), "size": len(data)}
+
+    def jar(rel, members):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for n, d in members.items():
+                z.writestr(n, d)
+        return put(rel, buf.getvalue())
+
+    java = put("jre/bin/java", "#!/bin/sh\necho ETA-JAVA \"$@\"\n")
+    jre = put("jre.json", json.dumps({"files": {
+        "bin": {"type": "directory"}, "bin/java": {"type": "file", "executable": True, "downloads": {"raw": java}},
+        "legal": {"type": "directory"}, "legal/java": {"type": "link", "target": "../bin/java"}}}))
+    put("all.json", json.dumps({launch.JAVA_PLATFORM: {"jre-legacy": [{"version": {"name": "test-8"},
+                                                                       "manifest": jre}]}}))
+    client = jar("client.jar", {"test/Main.class": b"\xca\xfe"})
+    lib = jar("libs/a/b/lib/1/lib-1.jar", {"lib.txt": "lib"})
+    nat = jar("libs/a/b/nat/1/nat-1-natives.jar", {"libnat.so": b"nat", "META-INF/MANIFEST.MF": "x"})
+    h1, h2 = hashlib.sha1(b"one").hexdigest(), hashlib.sha1(b"two").hexdigest()
+    put(f"objects/{h1[:2]}/{h1}", "one")
+    put(f"objects/{h2[:2]}/{h2}", "two")
+    index = put("t.json", json.dumps({"virtual": True, "objects": {"a/one.txt": {"hash": h1, "size": 3},
+                                                                   "two.txt": {"hash": h2, "size": 3}}}))
+    log = put("log.xml", "<Configuration/>")
+    natives_key = {"osx": "natives-osx", "linux": "natives-linux", "windows": "natives-windows"}
+    classifiers = {k: dict(nat, path="a/b/nat/1/nat-1-natives.jar") for k in natives_key.values()}
+    vj = {"id": "t1", "type": "release", "mainClass": "test.Main",
+          "javaVersion": {"component": "jre-legacy", "majorVersion": 8},
+          "assetIndex": dict(index, id="t", totalSize=6), "downloads": {"client": client},
+          "logging": {"client": {"argument": "-Dlog4j.configurationFile=${path}", "file": dict(log, id="log.xml"),
+                                 "type": "log4j2-xml"}},
+          "libraries": [{"name": "a.b:lib:1", "downloads": {"artifact": dict(lib, path="a/b/lib/1/lib-1.jar")}},
+                        {"name": "a.b:nat:1", "natives": natives_key, "extract": {"exclude": ["META-INF/"]},
+                         "downloads": {"classifiers": classifiers}},
+                        {"name": "a.b:skip:1", "rules": [{"action": "allow", "os": {"name": "nowhere"}}],
+                         "downloads": {"artifact": {"url": f"{base}/missing.jar", "path": "a/b/skip/1/skip-1.jar",
+                                                    "sha1": "0" * 40, "size": 1}}}],
+          "arguments": {"game": ["--username", "${auth_player_name}", "--gameDir", "${game_directory}",
+                                 "--assetIndex", "${assets_index_name}",
+                                 {"rules": [{"action": "allow", "features": {"has_custom_resolution": True}}],
+                                  "value": ["--width", "${resolution_width}"]}],
+                        "jvm": [{"rules": [{"action": "allow", "os": {"name": launch.OS_NAME}}],
+                                 "value": ["-XstartOnFirstThread"]},
+                                "-Djava.library.path=${natives_directory}", "-cp", "${classpath}"]}}
+    ver = put("t1.json", json.dumps(vj))
+    put("version_manifest_v2.json", json.dumps({"latest": {"release": "t1"}, "versions": [dict(ver, id="t1")]}))
+    fl = jar("maven/a/b/fl/1/fl-1.jar", {"fl.txt": "loader"})
+    put("fabric/versions/loader", json.dumps([{"version": "0.2-beta", "stable": False}, {"version": "0.1", "stable": True}]))
+    put("fabric/versions/loader/t1/0.1/profile/json", json.dumps({
+        "id": "fabric-loader-0.1-t1", "inheritsFrom": "t1", "mainClass": "fabric.Main",
+        "libraries": [{"name": "a.b:fl:1", "url": f"{base}/maven/", "sha1": fl["sha1"], "size": fl["size"]}],
+        "arguments": {"jvm": ["-Dfabric=1"], "game": ["--fab"]}}))
+    launch.MANIFEST_URL = f"{base}/version_manifest_v2.json"
+    launch.JAVA_RUNTIME_URL = f"{base}/all.json"
+    launch.RESOURCES_URL = f"{base}/objects/"
+    launch.FABRIC_META = f"{base}/fabric"
+
+    root = Path(tmp) / "minecraft"
+    seen = []
+    g = launch.Game(root, Path(tmp) / "java", lambda st, d, t, x: seen.append(st), workers=4)
+    acc = {"name": "Steve_09", "uuid": "b50ad385-829d-3141-a216-7e7d7539ba7f"}
+    settings = {"memory_mb": 1024, "width": 1280, "height": 720, "jvm_args": "-Dx=1"}
+    inst = {"id": "i1", "name": "Тест", "mc_version": "t1", "loader": "fabric", "loader_version": ""}
+    r = g.prepare(inst, acc, settings, root / "instances" / "i1")
+    cmd = r["cmd"]
+    assert r["version"] == "fabric-loader-0.1-t1" and r["loader_version"] == "0.1"
+    assert cmd[0].endswith("bin/java") and "-Xmx1024M" in cmd and "-Dx=1" in cmd and "-Dfabric=1" in cmd
+    assert "-XstartOnFirstThread" in cmd and cmd[cmd.index("-cp") + 1].split(os.pathsep)[0].endswith("fl-1.jar")
+    assert cmd.index("--fab") > cmd.index("fabric.Main") > cmd.index("-cp") and "--width" in cmd
+    assert any(a.startswith("-Dlog4j.configurationFile=") for a in cmd)
+    natives = root / "natives" / "fabric-loader-0.1-t1"
+    assert (natives / "libnat.so").read_bytes() == b"nat" and not (natives / "META-INF").exists()
+    assert (root / "assets" / "objects" / h1[:2] / h1).read_bytes() == b"one"
+    assert (root / "assets" / "virtual" / "t" / "a" / "one.txt").read_bytes() == b"one"
+    assert not (root / "libraries" / "a/b/skip/1/skip-1.jar").exists()
+    assert (Path(tmp) / "java" / "jre-legacy" / "legal" / "java").exists()
+    assert "java" in seen and "assets" in seen and "libraries" in seen
+    out = subprocess.run(cmd, cwd=r["cwd"], env=r["env"], capture_output=True, text=True, timeout=30).stdout
+    assert "ETA-JAVA" in out and "--username Steve_09" in out and "--assetIndex t" in out, out
+    # second run: nothing to download, same command
+    g2 = launch.Game(root, Path(tmp) / "java", workers=4)
+    assert g2.prepare(inst, acc, settings, root / "instances" / "i1")["cmd"] == cmd
+    # rules and maven paths
+    assert launch.maven_path("net.fabricmc:fabric-loader:0.16.9") == \
+        "net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"
+    assert launch.maven_path("org.lwjgl:lwjgl:3.3.1:natives-macos@zip") == \
+        "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos.zip"
+    assert launch.allowed([{"action": "allow"}, {"action": "disallow", "os": {"name": "nowhere"}}])
+    assert not launch.allowed([{"action": "allow", "os": {"name": "nowhere"}}])
+    assert launch.allowed([{"action": "allow", "features": {"is_demo_user": True}}], {"is_demo_user": True})
+    return len(cmd)
 
 
 def _mrpack_test(tmp):

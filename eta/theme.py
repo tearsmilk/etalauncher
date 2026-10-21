@@ -124,6 +124,8 @@ QToolTip {{ background: {c['popup']}; color: {c['text']}; border: 1px solid {c['
 #Muted {{ color: {c['muted']}; }}
 #Hint {{ color: {c['muted']}; font-size: 11px; }}
 #Warn {{ color: {c['warn']}; font-size: 11px; }}
+#Console {{ background: {c['input']}; border: 1px solid {c['border']}; border-radius: 8px; padding: 6px;
+  font-family: "SF Mono", Menlo, Monaco, monospace; font-size: 11px; }}
 #Ok {{ color: {c['ok']}; font-size: 11px; }}
 #Sep {{ background: {c['border']}; }}
 #Page {{ background: {c['bg']}; }}

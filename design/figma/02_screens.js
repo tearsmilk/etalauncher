@@ -1,5 +1,6 @@
 // Эта (Eta) — Screens page: Загрузка, Главная (Light / Dark), Главная — стекло (панель справа, свёрнута), Сборки —
-// каталог, Мои сборки, Аккаунты, Новый аккаунт, Настройки (с «Оформлением»). Run after 01_ui_kit.js.
+// каталог, Мои сборки, Аккаунты, Новый аккаунт, Запуск (подготовка / игра запущена), Настройки (с «Оформлением»).
+// Run after 01_ui_kit.js.
 let page = figma.root.children.find(p => p.name === "Screens");
 if (!page) { page = figma.createPage(); page.name = "Screens"; }
 await figma.setCurrentPageAsync(page);
@@ -242,6 +243,23 @@ MODE = "Light";
   const fld = al("HORIZONTAL", {name: "Field", pad: [4, 8, 4, 8], radius: 6, fill: "input", stroke: "accent"}); fld.resize(300, 26); fld.primaryAxisSizingMode = "FIXED"; fld.appendChild(txt("Kotik_228")); cc.appendChild(fld);
   cc.appendChild(txt("Ник свободен ✓", {size: 11, color: "done"})); cc.appendChild(txt("UUID: e4b41c70-7c8c-3535-8b63-3e0155c4a91c", {size: 11, color: "muted"})); card.appendChild(cc); b.appendChild(card);
   const rr = al("HORIZONTAL", {name: "Buttons", gap: 8}); rr.appendChild(btn("Отмена")); rr.appendChild(btn("Создать", "accent")); b.appendChild(rr);
+  place(f);
+}
+
+// Запуск — подготовка (прогресс) и игра запущена (консоль)
+for (const [name, stage, pct, detail, running] of [["Запуск — подготовка", "Ресурсы игры…", 0.7, "Ресурсы игры — 2 540 из 3 598", false], ["Запуск — игра запущена", "Игра запущена", 1, "Minecraft fabric-loader-0.16.9-1.21.1 · java-runtime-delta", true]]) {
+  const f = frame(name, 560, running ? 520 : 250);
+  const b = al("VERTICAL", {name: "Dialog", gap: 10, pad: [18, 22, 18, 22]}); b.resize(560, running ? 520 : 250); b.primaryAxisSizingMode = "FIXED"; b.counterAxisSizingMode = "FIXED"; f.appendChild(b);
+  const hd = al("HORIZONTAL", {name: "Head", gap: 12, align: "CENTER"}); hd.appendChild(blockIcon(48, "#E8B23A", "#C08A2A", "Т")); const hc = al("VERTICAL", {name: "Text", gap: 2}); hc.appendChild(txt("Тихая гавань", {family: SERIF, size: 18})); hc.appendChild(txt("Fabric 1.21.1 · 96 модов · Hoka_Neko", {color: "muted"})); hd.appendChild(hc); b.appendChild(hd);
+  b.appendChild(txt(stage, {family: SERIF, size: 16}));
+  const bar = figma.createFrame(); bar.resize(516, 8); bar.cornerRadius = 4; bar.fills = [fill("border")]; const ch = figma.createRectangle(); ch.resize(516 * pct, 8); ch.cornerRadius = 4; ch.fills = [fill("accent")]; bar.appendChild(ch); b.appendChild(bar);
+  b.appendChild(txt(detail, {size: 11, color: "muted"}));
+  if (running) {
+    const con = al("VERTICAL", {name: "Console", gap: 2, pad: 8, radius: 8, fill: "input", stroke: "border"}); con.resize(516, 230); con.primaryAxisSizingMode = "FIXED"; con.counterAxisSizingMode = "FIXED";
+    for (const l of ["[eta] …/java -Xmx4096M -XstartOnFirstThread -cp … net.fabricmc.loader.impl.launch.knot.KnotClient --username Hoka_Neko", "[main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.9", "[main/INFO]: Loading 96 mods:", "[Render thread/INFO]: Setting user: Hoka_Neko", "[Render thread/INFO]: Backend library: LWJGL version 3.3.3", "[Render thread/INFO]: OpenAL initialized on device Built-in Output"]) con.appendChild(txt(l, {size: 11, color: "muted"}));
+    b.appendChild(con);
+  }
+  const rr = al("HORIZONTAL", {name: "Buttons", gap: 8}); rr.appendChild(btn("Консоль")); rr.appendChild(btn("Папка сборки")); const sp = figma.createFrame(); sp.fills = []; sp.resize(10, 10); sp.layoutGrow = 1; rr.appendChild(sp); if (running) rr.appendChild(btn("Скрыть")); rr.appendChild(btn(running ? "Остановить игру" : "Отмена")); rr.layoutAlign = "STRETCH"; b.appendChild(rr);
   place(f);
 }
 

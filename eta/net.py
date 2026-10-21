@@ -68,6 +68,8 @@ def download(url, dest, timeout=60, progress=None, cancel=None, chunk=1 << 16):
                 done += len(buf)
                 if progress:
                     progress(done, total)
+            if total and done != total:
+                raise NetError(f"Загрузка оборвалась ({done} из {total} байт)")
         tmp.replace(dest)
         return dest
     except NetError:

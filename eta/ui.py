@@ -2,16 +2,19 @@
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPainterPath, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
+                               QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+                               QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, LOGO, __version__, backgrounds, icons, net, theme
+from . import APP_NAME, LOGO, __version__, backgrounds, icons, launch, net, theme
 from .accounts import AccountStore, offline_uuid, validate
 from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, DemoProvider, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
@@ -216,7 +219,9 @@ class Hero(QFrame):
             self.title.setText(inst["name"])
             self.meta.setText(describe(inst))
             set_icon(self.win, self.icon, inst.get("icon_url"), inst["icon"], 76)
-            self.play.setEnabled(True)
+            running = inst["id"] in self.win.games
+            self.play.setText("  Играет…" if running else "  Играть")
+            self.play.setEnabled(not running)
         else:
             self.title.setText("Создайте первую сборку")
             self.meta.setText("Выберите готовую в каталоге Modrinth или соберите свою.")
@@ -759,8 +764,9 @@ class InstanceCard(QFrame):
         v.addWidget(label(" · ".join(extra), "Hint"))
         v.addStretch(1)
         row = QHBoxLayout()
-        play = QPushButton("Играть")
+        play = QPushButton("Играет…" if inst["id"] in win.games else "Играть")
         play.setObjectName("Accent")
+        play.setEnabled(inst["id"] not in win.games)
         play.setIcon(icons.icon("play", "#FFFFFF", "#FFFFFF"))
         play.clicked.connect(lambda: (win.select_instance(inst["id"], go_home=False), win.launch(inst)))
         row.addWidget(play)
@@ -1475,8 +1481,8 @@ class SettingsPage(QScrollArea):
         browse = QPushButton("Обзор…")
         browse.clicked.connect(self.pick_java)
         jl.addWidget(browse)
-        row("Java", jv, "1.20.5+ — Java 21, 1.18–1.20.4 — Java 17, старые версии — Java 8. Эта будет скачивать "
-                        "нужную сама.")
+        row("Java", jv, "«Автоматически» — Эта скачает ту же Java, что и официальный лаунчер (8, 16, 17 или 21 — "
+                        "по версии игры), в свою папку. Или укажите свою.")
         args = QLineEdit(s.get("jvm_args", ""))
         args.editingFinished.connect(lambda: (s.update(jvm_args=args.text().strip()), s.save()))
         row("Аргументы JVM", args)
@@ -1580,59 +1586,223 @@ class SettingsPage(QScrollArea):
 
 # ---------------------------------------------------------------- window
 
+class GameProcess(QObject):
+    """A running Minecraft: its output line by line and the exit code, delivered on the Qt thread."""
+
+    line = Signal(str)
+    exited = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.proc = None
+        self.started = time.time()
+        self.stopped = False
+
+    def start(self, cmd, cwd, env):
+        self.started = time.time()
+        self.proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     stdin=subprocess.DEVNULL, text=True, errors="replace", start_new_session=True)
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        for ln in self.proc.stdout:
+            self.line.emit(ln.rstrip("\n"))
+        self.exited.emit(self.proc.wait())
+
+    def stop(self):
+        self.stopped = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+
+    def running(self):
+        return self.proc is not None and self.proc.poll() is None
+
+
+class _LaunchProgress(QObject):
+    changed = Signal(str, int, int, str)
+    logged = Signal(str)
+
+
 class LaunchDialog(QDialog):
-    """Launch flow (demo until the game installer lands)."""
+    """Gets the game ready (version, Java, loader, libraries, assets) with a progress bar, then starts it and shows
+    its console. The dialog stays alive while the game runs; closing it just hides it."""
+
+    SPAN = {"version": (0, 3), "java": (3, 25), "loader": (25, 38), "libraries": (38, 55), "assets": (55, 96),
+            "launch": (96, 100)}
 
     def __init__(self, win, inst, acc):
         super().__init__(win)
-        self.setWindowTitle("Запуск")
-        self.setFixedWidth(420)
+        self.win = win
+        self.inst = inst
+        self.acc = acc
+        self.setWindowTitle(f"Запуск — {inst['name']}")
+        self.setMinimumWidth(520)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(22, 18, 22, 18)
         head = QHBoxLayout()
         i = QLabel()
-        i.setPixmap(block_icon(inst["icon"], 48))
+        set_icon(win, i, inst.get("icon_url"), inst["icon"], 48)
         head.addWidget(i)
         col = QVBoxLayout()
         col.addWidget(label(inst["name"], "H2"))
         col.addWidget(label(f"{describe(inst)} · {acc['name']}", "Muted"))
         head.addLayout(col, 1)
         lay.addLayout(head)
+        self.stage = label("Готовим игру…", "H3")
+        lay.addWidget(self.stage)
         self.bar = QProgressBar()
         self.bar.setRange(0, 100)
         self.bar.setTextVisible(False)
         self.bar.setFixedHeight(8)
         lay.addWidget(self.bar)
-        self.status = label("", "Hint")
-        lay.addWidget(self.status)
-        self.done = label("", "Muted", wrap=True)
-        lay.addWidget(self.done)
+        self.detail = label("", "Hint", wrap=True)
+        lay.addWidget(self.detail)
+        self.console = QPlainTextEdit()
+        self.console.setObjectName("Console")
+        self.console.setReadOnly(True)
+        self.console.setMaximumBlockCount(4000)
+        self.console.setMinimumHeight(220)
+        self.console.setVisible(bool(win.settings.get("show_console")))
+        lay.addWidget(self.console, 1)
         row = QHBoxLayout()
+        self.console_btn = QPushButton("Консоль")
+        self.console_btn.setCheckable(True)
+        self.console_btn.setChecked(self.console.isVisible())
+        self.console_btn.toggled.connect(self._toggle_console)
+        row.addWidget(self.console_btn)
+        folder = QPushButton("Папка сборки")
+        folder.clicked.connect(lambda: win.open_instance_folder(inst))
+        row.addWidget(folder)
         row.addStretch(1)
-        self.close_btn = QPushButton("Отмена")
-        self.close_btn.clicked.connect(self.reject)
-        row.addWidget(self.close_btn)
+        self.hide_btn = QPushButton("Скрыть")
+        self.hide_btn.clicked.connect(self.hide)
+        self.hide_btn.hide()
+        row.addWidget(self.hide_btn)
+        self.stop_btn = QPushButton("Отмена")
+        self.stop_btn.clicked.connect(self.cancel)
+        row.addWidget(self.stop_btn)
         lay.addLayout(row)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._tick)
-        self.timer.start(18)
+        self.phase = "prepare"
+        self.cancelled = False
+        self.game = None
+        self.result = None
+        self.progress = _LaunchProgress()
+        self.progress.changed.connect(self._progress)
+        self.progress.logged.connect(self._log)
+        s = win.settings
+        inst_dir = s.game_dir() / "instances" / inst["id"]
 
-    def _tick(self):
-        v = self.bar.value() + 1
-        self.bar.setValue(v)
-        steps = ["Проверяем Java", "Проверяем файлы игры", "Готовим библиотеки", "Собираем аргументы запуска"]
-        self.status.setText(steps[min(len(steps) - 1, v // 25)] + "…")
-        if v >= 100:
-            self.timer.stop()
-            self.status.setText("Готово к запуску")
-            self.done.setText("Сборка и её моды на месте. Скачивание самого Minecraft, загрузчика и Java и запуск "
-                              "игры — следующий шаг.")
-            self.close_btn.setText("Понятно")
-            self.close_btn.setObjectName("Accent")
-            self.close_btn.style().unpolish(self.close_btn)
-            self.close_btn.style().polish(self.close_btn)
-            self.close_btn.clicked.disconnect()
-            self.close_btn.clicked.connect(self.accept)
+        def job():
+            g = launch.Game(s.game_dir(), progress=self.progress.changed.emit, cancel=lambda: self.cancelled,
+                            log=self.progress.logged.emit, workers=int(s.get("parallel_downloads", 6)))
+            return g.prepare(inst, acc, s, inst_dir)
+
+        win.runner.run(job, self._ready, self._failed)
+
+    def _toggle_console(self, on):
+        self.console.setVisible(on)
+        self.adjustSize()
+
+    def _log(self, line):
+        self.console.appendPlainText(line)
+
+    def _progress(self, stage, done, total, text):
+        lo, hi = self.SPAN.get(stage, (0, 100))
+        frac = done / total if total else 0.0
+        self.bar.setValue(int(lo + (hi - lo) * frac))
+        names = {"version": "Сведения о версии", "java": "Java", "loader": "Загрузчик модов",
+                 "libraries": "Библиотеки игры", "assets": "Ресурсы игры", "launch": "Запуск"}
+        self.stage.setText(names.get(stage, stage) + "…")
+        self.detail.setText(f"{text} — {done} из {total}" if total and total > 1 else text)
+
+    def _ready(self, r):
+        self.result = r
+        if self.cancelled:
+            self.reject()
+            return
+        if r.get("loader_version") and r["loader_version"] != self.inst.get("loader_version"):
+            self.win.instances.update(self.inst["id"], loader_version=r["loader_version"])
+        self._log("[eta] " + " ".join(r["cmd"]))
+        self.game = GameProcess(self)
+        self.game.line.connect(self._log, Qt.QueuedConnection)
+        self.game.exited.connect(self._exited, Qt.QueuedConnection)
+        try:
+            self.game.start(r["cmd"], r["cwd"], r["env"])
+        except OSError as e:
+            self._failed(e)
+            return
+        self.phase = "running"
+        self.win.games[self.inst["id"]] = self.game
+        self.win.instances.update(self.inst["id"], last_played=time.time())
+        self.win.refresh()
+        self.bar.setValue(100)
+        self.stage.setText("Игра запущена")
+        self.detail.setText(f"Minecraft {r['version']} · {Path(r['java']).parent.parent.name or 'Java'}")
+        self.stop_btn.setText("Остановить игру")
+        self.hide_btn.show()
+        if self.win.settings.get("close_on_launch"):
+            self.win.hide()
+        if not self.win.settings.get("show_console"):
+            self.hide()
+
+    def _exited(self, code):
+        self.phase = "done"
+        self.win.games.pop(self.inst["id"], None)
+        minutes = int((time.time() - self.game.started) // 60) if self.game else 0
+        cur = self.win.instances.get(self.inst["id"]) or {}
+        self.win.instances.update(self.inst["id"], playtime_min=int(cur.get("playtime_min") or 0) + minutes,
+                                  last_played=time.time())
+        self.win.show()
+        self.win.raise_()
+        self.win.refresh()
+        self.stop_btn.setText("Закрыть")
+        self.hide_btn.hide()
+        if code and not (self.game and self.game.stopped):
+            self.stage.setText(f"Игра завершилась с ошибкой (код {code})")
+            self.detail.setText("Посмотрите конец журнала ниже; подробности также в папке сборки → .minecraft/logs.")
+            self.console_btn.setChecked(True)
+            self.show()
+        else:
+            self.stage.setText("Игра закрыта")
+            if not self.isVisible():
+                self.accept()
+
+    def _failed(self, e):
+        self.phase = "failed"
+        self.stage.setText("Не получилось запустить")
+        self.detail.setText(str(e))
+        self.detail.setObjectName("Warn")
+        self.detail.style().unpolish(self.detail)
+        self.detail.style().polish(self.detail)
+        self.console_btn.setChecked(True)
+        self.stop_btn.setText("Закрыть")
+        self.show()
+
+    def cancel(self):
+        if self.phase == "prepare":
+            self.cancelled = True
+            self.detail.setText("Отменяем…")
+            self.stop_btn.setEnabled(False)
+        elif self.phase == "running":
+            self.game.stop()
+            self.detail.setText("Останавливаем игру…")
+        else:
+            self.accept()
+
+    def reject(self):
+        if self.phase == "prepare":
+            self.cancel()
+        elif self.phase == "running":
+            self.hide()
+        else:
+            super().reject()
+
+    def closeEvent(self, e):
+        if self.phase in ("prepare", "running"):
+            self.reject()
+            e.ignore()
+            return
+        super().closeEvent(e)
 
 
 class Backdrop(QWidget):
@@ -1685,6 +1855,8 @@ class MainWindow(QMainWindow):
         from .modrinth import ModrinthProvider
 
         self.providers = {"modrinth": provider or ModrinthProvider(), "curseforge": DemoProvider()}
+        self.games = {}        # instance id → GameProcess while it runs
+        self.launches = {}     # instance id → LaunchDialog (kept alive: it owns the process)
         self.provider = self.providers["modrinth"]
         self.runner = net.Runner(int(self.settings.get("parallel_downloads", 6)))
         self.icons = net.IconCache(self.runner)
@@ -1982,10 +2154,20 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Аккаунт", "Сначала создайте аккаунт — нужен только ник.")
             self.go("accounts")
             return
+        if inst["id"] in self.games:
+            dlg = self.launches.get(inst["id"])
+            if dlg:
+                dlg.show()
+                dlg.raise_()
+            return
         self.accounts.touch(acc["uuid"])
-        self.instances.update(inst["id"], last_played=time.time())
-        LaunchDialog(self, inst, acc).exec()
-        self.refresh()
+        old = self.launches.pop(inst["id"], None)
+        if old:
+            old.deleteLater()
+        dlg = LaunchDialog(self, inst, acc)
+        self.launches[inst["id"]] = dlg
+        dlg.show()
+        return dlg
 
 
 def main():
