@@ -1605,8 +1605,16 @@ class GameProcess(QObject):
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
+        # lines are batched: a game that floods its log (Forge's early display on a broken GL setup writes
+        # millions of lines) must not flood the Qt event loop with one signal per line
+        buf, last = [], time.monotonic()
         for ln in self.proc.stdout:
-            self.line.emit(ln.rstrip("\n"))
+            buf.append(ln.rstrip("\n"))
+            if len(buf) >= 200 or time.monotonic() - last > 0.1:
+                self.line.emit("\n".join(buf[-200:]))
+                buf, last = [], time.monotonic()
+        if buf:
+            self.line.emit("\n".join(buf[-200:]))
         self.exited.emit(self.proc.wait())
 
     def stop(self):
