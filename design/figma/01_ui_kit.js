@@ -147,6 +147,11 @@ const chip = comp("Account chip", "HORIZONTAL", {pad: [6, 8, 6, 8], gap: 8, radi
 chip.appendChild(head(30)); const cc = al("VERTICAL", {name: "Text", gap: 0}); cc.appendChild(txt("Hoka_Neko", {style: "Semi Bold"})); cc.appendChild(txt("Оффлайн", {size: 11, color: "muted"})); chip.appendChild(cc); grid.appendChild(chip);
 const chips = ["Off", "On"].map(v => { const c = comp("State=" + v, "HORIZONTAL", {pad: [4, 10, 4, 10], radius: 14, fill: v === "On" ? "accent" : "card", stroke: v === "On" ? "accent" : "border"}); c.appendChild(txt("Fabric", {color: v === "On" ? "on-accent" : "text"})); return c; });
 variants(chips, grid).name = "Filter chip";
+const sws = comp("Accent swatches", "HORIZONTAL", {pad: 12, gap: 6, radius: 12, fill: "card", stroke: "border"});
+for (const [i, c] of ["#D97757", "#3F7FD0", "#4E8A57", "#9B6BC9", "#D9668F", "#E0A433", "#3FA7C9", "#55575E", "#D2453B", "#3BB08F"].entries()) { const e = figma.createEllipse(); e.resize(24, 24); e.fills = [{type: "SOLID", color: hex(c)}]; if (!i) { e.strokes = [fill("text")]; e.strokeWeight = 3; } sws.appendChild(e); }
+grid.appendChild(sws);
+const glass = comp("Glass card", "VERTICAL", {pad: [14, 16, 14, 16], gap: 4, radius: 14}); glass.fills = [{type: "SOLID", color: hex("#FFFFFF"), opacity: 0.6}]; glass.strokes = [{type: "SOLID", color: hex("#FFFFFF"), opacity: 0.38}];
+glass.effects = [{type: "BACKGROUND_BLUR", radius: 24, visible: true}]; glass.appendChild(txt("Стекло", {family: SERIF, size: 16})); glass.appendChild(txt("Полупрозрачная панель поверх размытого фона", {color: "muted"})); grid.appendChild(glass);
 const tags = comp("Tags", "HORIZONTAL", {pad: 12, gap: 4}); for (const [t, c] of [["Fabric", "l-orange"], ["Forge", "l-blue"], ["NeoForge", "l-red"], ["Quilt", "l-purple"], ["Vanilla", "l-green"], ["Магия", null], ["1.21.1", null]]) tags.appendChild(tagEl(t, c)); grid.appendChild(tags);
 
 await root.screenshot({scale: 0.5});

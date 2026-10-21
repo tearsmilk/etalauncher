@@ -5,13 +5,13 @@ import sys
 import time
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence, QPainter, QPainterPath, QShortcut
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPainterPath, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
+                               QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, LOGO, __version__, icons, theme
+from . import APP_NAME, LOGO, __version__, backgrounds, icons, net, theme
 from .accounts import AccountStore, offline_uuid, validate
 from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, DemoProvider, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
@@ -62,6 +62,36 @@ def ago(ts):
     if d < 86400 * 365:
         return f"{int(d // (86400 * 30))} мес. назад"
     return f"{int(d // (86400 * 365))} г. назад"
+
+
+def rounded(pix, size, radius=None):
+    """Scale a picture into a size×size rounded square (project / instance icons)."""
+    from PySide6.QtGui import QPixmap
+
+    radius = size * 0.22 if radius is None else radius
+    out = QPixmap(size * 2, size * 2)
+    out.fill(Qt.transparent)
+    p = QPainter(out)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setRenderHint(QPainter.SmoothPixmapTransform)
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(0, 0, size * 2, size * 2), radius * 2, radius * 2)
+    p.setClipPath(path)
+    sc = pix.scaled(size * 2, size * 2, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+    p.drawPixmap((size * 2 - sc.width()) // 2, (size * 2 - sc.height()) // 2, sc)
+    p.end()
+    out.setDevicePixelRatio(2)
+    return out
+
+
+def set_icon(win, lbl, url, seed, size):
+    """Block icon now, the real project icon (Modrinth) when it arrives."""
+    lbl.setPixmap(block_icon(seed or "?", size))
+    if url and getattr(win, "icons", None) is not None:
+        def done(pix, lbl=lbl):
+            if not pix.isNull():
+                lbl.setPixmap(rounded(pix, size))
+        win.icons.get(url, done)
 
 
 LOADER_COLORS = {"fabric": "orange", "forge": "blue", "neoforge": "red", "quilt": "purple", "vanilla": "green"}
@@ -127,51 +157,51 @@ class SplashPage(QWidget):
 # ---------------------------------------------------------------- home
 
 class Hero(QFrame):
-    """Banner of the selected instance with the Play button."""
+    """Compact card of the selected instance: icon, name, details, switcher and a big Play button."""
 
     def __init__(self, win):
         super().__init__()
         self.win = win
         self.setObjectName("Hero")
-        self.setMinimumHeight(300)
+        self.setFixedHeight(132)
         self.inst = None
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(32, 28, 32, 28)
-        lay.addStretch(1)
-        row = QHBoxLayout()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(22, 18, 22, 18)
         row.setSpacing(16)
         self.icon = QLabel()
-        row.addWidget(self.icon, 0, Qt.AlignBottom)
+        row.addWidget(self.icon)
         col = QVBoxLayout()
         col.setSpacing(2)
+        col.addStretch(1)
         self.title = label("", "HeroTitle")
         self.meta = label("", "HeroMeta")
         col.addWidget(self.title)
         col.addWidget(self.meta)
+        tools = QHBoxLayout()
+        tools.setSpacing(6)
+        self.pick = QComboBox()
+        self.pick.setObjectName("HeroPick")
+        self.pick.setMinimumWidth(220)
+        self.pick.activated.connect(self._picked)
+        tools.addWidget(self.pick)
+        folder = QToolButton()
+        folder.setObjectName("HeroTool")
+        folder.setIcon(icons.icon("folder", "#FFFFFF", "#FFFFFF"))
+        folder.setToolTip("Открыть папку сборки")
+        folder.clicked.connect(lambda: win.open_instance_folder(self.inst) if self.inst else None)
+        tools.addWidget(folder)
+        tools.addStretch(1)
+        col.addSpacing(6)
+        col.addLayout(tools)
+        col.addStretch(1)
         row.addLayout(col, 1)
-        lay.addLayout(row)
-        lay.addSpacing(14)
-        acts = QHBoxLayout()
         self.play = QPushButton("  Играть")
         self.play.setObjectName("PlayBtn")
         self.play.setIcon(icons.icon("play", "#FFFFFF", "#FFFFFF"))
         self.play.setIconSize(QSize(18, 18))
         self.play.setCursor(Qt.PointingHandCursor)
         self.play.clicked.connect(lambda: win.launch(self.inst))
-        acts.addWidget(self.play)
-        self.pick = QComboBox()
-        self.pick.setObjectName("HeroPick")
-        self.pick.setMinimumWidth(220)
-        self.pick.activated.connect(self._picked)
-        acts.addWidget(self.pick)
-        folder = QToolButton()
-        folder.setObjectName("HeroTool")
-        folder.setIcon(icons.icon("folder", "#FFFFFF", "#FFFFFF"))
-        folder.setToolTip("Открыть папку игры")
-        folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(win.settings.game_dir()))))
-        acts.addWidget(folder)
-        acts.addStretch(1)
-        lay.addLayout(acts)
+        row.addWidget(self.play, 0, Qt.AlignVCenter)
 
     def set_instance(self, inst):
         self.inst = inst
@@ -185,12 +215,12 @@ class Hero(QFrame):
         if inst:
             self.title.setText(inst["name"])
             self.meta.setText(describe(inst))
-            self.icon.setPixmap(block_icon(inst["icon"], 72))
+            set_icon(self.win, self.icon, inst.get("icon_url"), inst["icon"], 76)
             self.play.setEnabled(True)
         else:
             self.title.setText("Создайте первую сборку")
-            self.meta.setText("Выберите готовую в каталоге или соберите свою: версия игры и загрузчик модов.")
-            self.icon.setPixmap(block_icon("η", 72))
+            self.meta.setText("Выберите готовую в каталоге Modrinth или соберите свою.")
+            self.icon.setPixmap(block_icon("η", 76))
             self.play.setEnabled(False)
         self.update()
 
@@ -208,6 +238,7 @@ class Hero(QFrame):
         path.addRoundedRect(QRectF(self.rect()), 18, 18)
         p.setClipPath(path)
         paint_banner(p, self.rect(), (self.inst or {}).get("icon", "η"), theme.CURRENT["name"] == "dark")
+        p.fillRect(self.rect(), QColor(0, 0, 0, 70))
         p.end()
 
 
@@ -233,10 +264,10 @@ class HomePage(QScrollArea):
         self.lay.addWidget(label("НОВОСТИ ЛАУНЧЕРА", "Section"))
         news = QHBoxLayout()
         news.setSpacing(12)
-        for title, text in (("Добро пожаловать в Эту", "Сборки, аккаунты и настройки уже работают. Создайте сборку и "
-                                                      "выберите ник — и всё готово к запуску."),
-                            ("Modrinth и CurseForge — скоро", "Каталог пока показывает примеры. Следующим шагом "
-                                                             "подключим загрузку сборок и модов."),
+        for title, text in (("Modrinth подключён", "Ищите сборки в каталоге и ставьте их в один клик: Эта скачает "
+                                                  "все моды и проверит контрольные суммы."),
+                            ("Своё оформление", "Цвет акцента, картинка на фоне и стекло — в Настройках → "
+                                                "Оформление. Боковую панель можно скрыть или перенести вправо."),
                             ("Оффлайн-аккаунты", "Играйте с любым ником: UUID считается так же, как на серверах в "
                                                  "оффлайн-режиме.")):
             card = QFrame()
@@ -273,7 +304,7 @@ class HomePage(QScrollArea):
             v = QHBoxLayout(b)
             v.setContentsMargins(10, 8, 12, 8)
             i = QLabel()
-            i.setPixmap(block_icon(inst["icon"], 36))
+            set_icon(self.win, i, inst.get("icon_url"), inst["icon"], 36)
             v.addWidget(i)
             col = QVBoxLayout()
             col.setSpacing(0)
@@ -296,7 +327,7 @@ class ProjectRow(QFrame):
     open = Signal(str)
     install = Signal(str)
 
-    def __init__(self, p):
+    def __init__(self, p, win=None):
         super().__init__()
         self.p = p
         self.setObjectName("ProjectRow")
@@ -305,7 +336,7 @@ class ProjectRow(QFrame):
         h.setContentsMargins(14, 12, 14, 12)
         h.setSpacing(14)
         i = QLabel()
-        i.setPixmap(block_icon(p["title"], 64))
+        set_icon(win, i, p.get("icon_url"), p["title"], 64)
         h.addWidget(i, 0, Qt.AlignTop)
         col = QVBoxLayout()
         col.setSpacing(4)
@@ -322,7 +353,7 @@ class ProjectRow(QFrame):
             tags.addWidget(tag(LOADER_TAGS.get(lo, lo), LOADER_COLORS.get(lo)))
         for c in p["categories"][:2]:
             tags.addWidget(tag(CATEGORIES.get(c, c)))
-        vers = p["game_versions"]
+        vers = p["game_versions"] or ["?"]
         vt = tag(vers[0] + (f" +{len(vers) - 1}" if len(vers) > 1 else ""))
         vt.setToolTip("Версии игры: " + ", ".join(vers))
         tags.addWidget(vt)
@@ -361,20 +392,23 @@ class ProjectDialog(QDialog):
     def __init__(self, win, provider, slug):
         super().__init__(win)
         self.win = win
-        p = provider.project(slug)
+        self.provider = provider
+        self.slug = slug
+        p = (provider.cached(slug) if hasattr(provider, "cached") else None) or provider.project(slug)
         self.p = p
         self.setWindowTitle(p["title"])
-        self.resize(760, 620)
+        self.resize(820, 660)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 20, 24, 20)
         head = QHBoxLayout()
+        head.setSpacing(14)
         i = QLabel()
-        i.setPixmap(block_icon(p["title"], 80))
+        set_icon(win, i, p.get("icon_url"), p["title"], 80)
         head.addWidget(i)
         col = QVBoxLayout()
         col.addWidget(label(p["title"], "Title"))
-        col.addWidget(label(f"от {p['author']} · {SOURCES.get(p['source'])} · ⤓ {fmt_count(p['downloads'])} · "
-                            f"♥ {fmt_count(p['follows'])}", "Muted"))
+        col.addWidget(label(f"от {p['author']} · {SOURCES.get(p['source'], p['source'])} · ⤓ {fmt_count(p['downloads'])}"
+                            f" · ♥ {fmt_count(p['follows'])}", "Muted"))
         tags = QHBoxLayout()
         for lo in p["loaders"]:
             tags.addWidget(tag(LOADER_TAGS.get(lo, lo), LOADER_COLORS.get(lo)))
@@ -383,55 +417,91 @@ class ProjectDialog(QDialog):
         tags.addStretch(1)
         col.addLayout(tags)
         head.addLayout(col, 1)
+        btns = QVBoxLayout()
         inst = QPushButton("Установить")
         inst.setObjectName("Accent")
-        inst.clicked.connect(lambda: (self.accept(), win.install_project(p["slug"])))
-        head.addWidget(inst, 0, Qt.AlignTop)
+        inst.clicked.connect(lambda: (self.accept(), win.install_project(self.provider, slug)))
+        btns.addWidget(inst)
+        if p.get("url"):
+            web = QPushButton("Открыть на сайте")
+            web.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(p["url"])))
+            btns.addWidget(web)
+        btns.addStretch(1)
+        head.addLayout(btns)
         lay.addLayout(head)
         tabs = QTabWidget()
         tabs.setObjectName("DocTabs")
-        desc = QTextBrowser()
-        desc.setMarkdown(p["body"])
-        desc.setOpenExternalLinks(True)
-        tabs.addTab(desc, "Описание")
-        vers = QWidget()
-        vl = QVBoxLayout(vers)
-        for v in provider.versions(slug)[:14]:
-            row = QHBoxLayout()
-            row.addWidget(label(f"<b>{v['name']}</b>"), 1)
-            row.addWidget(tag("Релиз" if v["type"] == "release" else "Бета",
-                              "green" if v["type"] == "release" else "yellow"))
-            row.addWidget(tag(LOADER_TAGS.get(v["loader"], v["loader"]), LOADER_COLORS.get(v["loader"])))
-            row.addWidget(tag(v["mc"]))
-            row.addWidget(label(ago(v["date"]), "Hint"))
-            b = QPushButton("Установить")
-            b.clicked.connect(lambda _=False, v_=v: (self.accept(), win.install_project(p["slug"], v_)))
-            row.addWidget(b)
-            vl.addLayout(row)
-        vl.addStretch(1)
+        self.desc = QTextBrowser()
+        self.desc.setOpenExternalLinks(True)
+        self.desc.setMarkdown(p.get("body") or p.get("description") or "")
+        tabs.addTab(self.desc, "Описание")
+        self.vers_host = QWidget()
+        self.vl = QVBoxLayout(self.vers_host)
+        self.vl.addWidget(label("Загружаем версии…", "Hint"))
+        self.vl.addStretch(1)
         sc = QScrollArea()
         sc.setWidgetResizable(True)
-        sc.setWidget(vers)
+        sc.setWidget(self.vers_host)
         tabs.addTab(sc, "Версии")
         lay.addWidget(tabs, 1)
-        lay.addWidget(label("Демо-каталог: так будут выглядеть проекты Modrinth и CurseForge. Загрузка файлов "
-                            "подключится на следующем шаге.", "Hint", wrap=True))
+        if p["source"] != "modrinth":
+            lay.addWidget(label("Это пример: CurseForge подключим позже (нужен ключ API).", "Hint", wrap=True))
+        win.runner.run(lambda: provider.project(slug), self._project, lambda e: None)
+        win.runner.run(lambda: provider.versions(slug), self._versions,
+                       lambda e: self._versions_error(e))
+
+    def _project(self, p):
+        if p and p.get("body"):
+            self.desc.setMarkdown(p["body"])
+
+    def _versions_error(self, e):
+        clear_layout(self.vl)
+        self.vl.addWidget(label(f"Не удалось загрузить версии: {e}", "Warn", wrap=True))
+        self.vl.addStretch(1)
+
+    def _versions(self, vs):
+        clear_layout(self.vl)
+        if not vs:
+            self.vl.addWidget(label("Версий пока нет.", "Hint"))
+        for v in vs[:40]:
+            row = QHBoxLayout()
+            row.addWidget(label(f"<b>{v['name']}</b>"), 1)
+            row.addWidget(tag({"release": "Релиз", "beta": "Бета", "alpha": "Альфа"}.get(v["type"], v["type"]),
+                              {"release": "green", "beta": "yellow", "alpha": "red"}.get(v["type"])))
+            row.addWidget(tag(LOADER_TAGS.get(v["loader"], v["loader"]), LOADER_COLORS.get(v["loader"])))
+            row.addWidget(tag(v["mc"] or "?"))
+            row.addWidget(label(ago(v["date"]), "Hint"))
+            b = QPushButton("Установить")
+            b.clicked.connect(lambda _=False, v_=v: (self.accept(), self.win.install_project(self.provider, self.slug,
+                                                                                            v_)))
+            row.addWidget(b)
+            self.vl.addLayout(row)
+        self.vl.addStretch(1)
+
+
+class _Progress(QWidget):
+    """Carries progress from the install thread to the dialog (queued signal)."""
+
+    changed = Signal(str, int, int)
 
 
 class InstallDialog(QDialog):
-    """Choose name / version, then a progress bar (mock download) → creates the instance."""
+    """Choose name / version, then install: Modrinth — download the .mrpack and every mod in it (sha1-checked) into
+    <game>/instances/<id>/.minecraft; examples — a simulated progress bar."""
 
-    def __init__(self, win, p, version=None):
+    def __init__(self, win, provider, p, version=None):
         super().__init__(win)
         self.win = win
+        self.provider = provider
         self.p = p
+        self.real = getattr(provider, "name", "") == "modrinth"
         self.setWindowTitle("Установка сборки")
-        self.setFixedWidth(440)
+        self.setFixedWidth(470)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(22, 18, 22, 18)
         head = QHBoxLayout()
         i = QLabel()
-        i.setPixmap(block_icon(p["title"], 48))
+        set_icon(win, i, p.get("icon_url"), p["title"], 48)
         head.addWidget(i)
         head.addWidget(label(f"Установка «{p['title']}»", "H2"), 1)
         lay.addLayout(head)
@@ -440,13 +510,8 @@ class InstallDialog(QDialog):
         lay.addWidget(self.name)
         lay.addWidget(label("Версия"))
         self.version = QComboBox()
-        for v in win.provider.versions(p["slug"]):
-            self.version.addItem(f"{v['version']} · {LOADER_TAGS.get(v['loader'])} {v['mc']}", v)
-        if version:
-            for k in range(self.version.count()):
-                d = self.version.itemData(k)
-                if d["version"] == version["version"] and d["mc"] == version["mc"] and d["loader"] == version["loader"]:
-                    self.version.setCurrentIndex(k)
+        self.version.addItem("Загружаем версии…", None)
+        self.version.setEnabled(False)
         lay.addWidget(self.version)
         self.bar = QProgressBar()
         self.bar.setRange(0, 100)
@@ -454,21 +519,50 @@ class InstallDialog(QDialog):
         self.bar.setFixedHeight(8)
         self.bar.hide()
         lay.addWidget(self.bar)
-        self.status = label("", "Hint")
+        self.status = label("", "Hint", wrap=True)
         lay.addWidget(self.status)
         row = QHBoxLayout()
         row.addStretch(1)
-        self.cancel = QPushButton("Отмена")
-        self.cancel.clicked.connect(self.reject)
-        row.addWidget(self.cancel)
+        self.cancel_btn = QPushButton("Отмена")
+        self.cancel_btn.clicked.connect(self.cancel)
+        row.addWidget(self.cancel_btn)
         self.go = QPushButton("Установить")
         self.go.setObjectName("Accent")
+        self.go.setEnabled(False)
         self.go.clicked.connect(self.start)
         row.addWidget(self.go)
         lay.addLayout(row)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.result_inst = None
+        self.cancelled = False
+        self.running = False
+        self.preferred = version
+        self.progress = _Progress()
+        self.progress.changed.connect(self._progress)
+        win.runner.run(lambda: provider.versions(p["slug"]), self._versions, self._versions_error)
+
+    def _versions(self, vs):
+        self.version.clear()
+        for v in vs:
+            if self.real and not v.get("file"):
+                continue
+            kind = {"beta": " · бета", "alpha": " · альфа"}.get(v.get("type"), "")
+            self.version.addItem(f"{v['version']} · {LOADER_TAGS.get(v['loader'], v['loader'])} {v['mc']}{kind}", v)
+        if self.preferred:
+            for k in range(self.version.count()):
+                d = self.version.itemData(k)
+                if d and d.get("version") == self.preferred.get("version") and d.get("mc") == self.preferred.get("mc"):
+                    self.version.setCurrentIndex(k)
+        self.version.setEnabled(self.version.count() > 0)
+        self.go.setEnabled(self.version.count() > 0)
+        if not self.version.count():
+            self.status.setText("Нет версий для установки.")
+
+    def _versions_error(self, e):
+        self.version.clear()
+        self.version.addItem("—", None)
+        self.status.setText(f"Не удалось загрузить версии: {e}")
 
     def start(self, fast=False):
         self.go.setEnabled(False)
@@ -476,20 +570,96 @@ class InstallDialog(QDialog):
         self.version.setEnabled(False)
         self.bar.show()
         self.bar.setValue(0)
-        self.timer.start(2 if fast else 28)
+        self.running = True
+        if not self.real:
+            self.timer.start(2 if fast else 28)
+            return
+        v = self.version.currentData()
+        from .instances import new_id
+        from .modrinth import install_mrpack
+
+        iid = new_id()
+        root = self.win.settings.game_dir() / "instances" / iid
+        mc_dir = root / ".minecraft"
+        workers = int(self.win.settings.get("parallel_downloads", 6))
+        cache = root / "pack.mrpack"
+
+        def job():
+            from . import net
+
+            self.progress.changed.emit("pack", 0, 1)
+            net.download(v["file"]["url"], cache, progress=lambda d, t: self.progress.changed.emit("pack", d, t or 1),
+                         cancel=lambda: self.cancelled)
+            info = install_mrpack(cache, mc_dir, lambda st, d, t: self.progress.changed.emit(st, d, t),
+                                  lambda: self.cancelled, workers)
+            return info
+
+        def done(info):
+            self.running = False
+            self.result_inst = self.win.instances.add(
+                self.name.text().strip() or self.p["title"], info["mc"] or v["mc"], info["loader"], "modrinth",
+                self.p["slug"], info["mods"], self.p["title"], iid=iid, icon_url=self.p.get("icon_url", ""),
+                loader_version=info["loader_version"], pack_version=info["version"] or v["version"])
+            self.accept()
+
+        def failed(e):
+            self.running = False
+            import shutil as _sh
+
+            _sh.rmtree(root, ignore_errors=True)
+            if self.cancelled:
+                self.reject()
+                return
+            self.status.setText(f"Не получилось: {e}")
+            self.status.setObjectName("Warn")
+            self.status.style().unpolish(self.status)
+            self.status.style().polish(self.status)
+            self.go.setEnabled(True)
+            self.version.setEnabled(True)
+            self.name.setEnabled(True)
+
+        self.win.runner.run(job, done, failed)
+
+    def _progress(self, stage, d, t):
+        if stage == "pack":
+            self.bar.setValue(int(5 * d / max(1, t)))
+            self.status.setText("Скачиваем файл сборки…")
+        elif stage == "files":
+            self.bar.setValue(5 + int(90 * d / max(1, t)))
+            self.status.setText(f"Скачиваем моды и ресурсы: {d} из {t}")
+        else:
+            self.bar.setValue(95 + int(5 * d / max(1, t)))
+            self.status.setText("Копируем настройки сборки…")
+
+    def cancel(self):
+        if self.running and self.real:
+            self.cancelled = True
+            self.status.setText("Отменяем…")
+            self.cancel_btn.setEnabled(False)
+        else:
+            self.timer.stop()
+            self.reject()
+
+    def closeEvent(self, e):
+        if self.running and self.real:
+            self.cancel()
+            e.ignore()
+            return
+        super().closeEvent(e)
 
     def _tick(self):
         v = self.bar.value() + 1
         self.bar.setValue(v)
         steps = ["Получаем список файлов", "Скачиваем Minecraft", "Ставим загрузчик модов", "Скачиваем моды",
                  "Применяем настройки"]
-        self.status.setText(f"{steps[min(len(steps) - 1, v // 20)]}… {v}%  (демо)")
+        self.status.setText(f"{steps[min(len(steps) - 1, v // 20)]}… {v}%  (пример, без загрузки)")
         if v >= 100:
             self.timer.stop()
+            self.running = False
             d = self.version.currentData() or {"mc": self.p["game_versions"][-1], "loader": self.p["loaders"][0]}
             self.result_inst = self.win.instances.add(self.name.text().strip() or self.p["title"], d["mc"],
                                                       d["loader"], self.p["source"], self.p["slug"],
-                                                      self.p["mods"], self.p["title"])
+                                                      self.p.get("mods") or 0, self.p["title"])
             self.accept()
 
 
@@ -567,7 +737,7 @@ class InstanceCard(QFrame):
         v.setContentsMargins(14, 14, 14, 12)
         top = QHBoxLayout()
         i = QLabel()
-        i.setPixmap(block_icon(inst["icon"], 56))
+        set_icon(win, i, inst.get("icon_url"), inst["icon"], 56)
         top.addWidget(i)
         top.addStretch(1)
         more = QToolButton()
@@ -618,7 +788,7 @@ class ModpacksPage(QWidget):
         self.win = win
         self.setObjectName("Page")
         self.offset = 0
-        self.limit = 8
+        self.limit = 12
         lay = QVBoxLayout(self)
         lay.setContentsMargins(32, 26, 32, 0)
         lay.setSpacing(12)
@@ -661,6 +831,7 @@ class ModpacksPage(QWidget):
         side.setWidgetResizable(True)
         side.setFrameShape(QFrame.NoFrame)
         side.setFixedWidth(230)
+        self.filters = side
         fbody = QWidget()
         fbody.setObjectName("Page")
         f = QVBoxLayout(fbody)
@@ -668,12 +839,16 @@ class ModpacksPage(QWidget):
         f.setSpacing(6)
         f.addWidget(label("ИСТОЧНИК", "Section"))
         self.f_sources = {}
-        for k, t in SOURCES.items():
-            cb = QCheckBox(t)
-            cb.setChecked(True)
-            cb.toggled.connect(self.research)
-            f.addWidget(cb)
-            self.f_sources[k] = cb
+        group = QButtonGroup(self)
+        for k, t in (("modrinth", "Modrinth"), ("curseforge", "CurseForge · примеры")):
+            rb = QRadioButton(t)
+            rb.setChecked(k == (self.win.settings.get("default_source") or "modrinth"))
+            rb.toggled.connect(lambda on: on and self.research())
+            group.addButton(rb)
+            f.addWidget(rb)
+            self.f_sources[k] = rb
+        if not any(rb.isChecked() for rb in self.f_sources.values()):
+            self.f_sources["modrinth"].setChecked(True)
         f.addSpacing(8)
         f.addWidget(label("ЗАГРУЗЧИК", "Section"))
         self.f_loaders = {}
@@ -709,15 +884,23 @@ class ModpacksPage(QWidget):
         f.addWidget(reset)
         f.addStretch(1)
         side.setWidget(fbody)
+        side.setVisible(not self.win.settings.get("filters_hidden"))
         h.addWidget(side)
         right = QVBoxLayout()
         right.setSpacing(10)
         top = QHBoxLayout()
+        self.filter_btn = QPushButton("Фильтры")
+        self.filter_btn.setIcon(ic("filter"))
+        self.filter_btn.setCheckable(True)
+        self.filter_btn.setChecked(side.isVisible())
+        self.filter_btn.setToolTip("Показать / скрыть панель фильтров")
+        self.filter_btn.toggled.connect(self.toggle_filters)
+        top.addWidget(self.filter_btn)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Поиск сборок…")
+        self.search.setPlaceholderText("Поиск сборок на Modrinth…")
         self.search.setClearButtonEnabled(True)
         self.search.addAction(ic("search"), QLineEdit.LeadingPosition)
-        self.search.textChanged.connect(lambda: self._debounce.start(220))
+        self.search.textChanged.connect(lambda: self._debounce.start(350))
         top.addWidget(self.search, 1)
         top.addWidget(label("Сортировка"))
         self.sort = QComboBox()
@@ -743,65 +926,128 @@ class ModpacksPage(QWidget):
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self.research)
+        self.token = 0
+        self.loaded_once = False
         return w
 
+    def toggle_filters(self, on):
+        self.filters.setVisible(on)
+        self.win.settings["filters_hidden"] = not on
+        self.win.settings.save()
+
+    def source(self):
+        return next((k for k, rb in self.f_sources.items() if rb.isChecked()), "modrinth")
+
+    def provider(self):
+        return self.win.providers[self.source()]
+
     def query(self):
-        return dict(query=self.search.text(), sources=[k for k, cb in self.f_sources.items() if cb.isChecked()],
+        return dict(query=self.search.text(), sources=[self.source()],
                     loaders=[k for k, b in self.f_loaders.items() if b.isChecked()],
                     version=self.f_version.currentData(),
                     categories=[k for k, cb in self.f_cats.items() if cb.isChecked()],
                     sort=self.sort.currentData())
 
     def reset_filters(self):
-        for cb in self.f_sources.values():
-            cb.blockSignals(True)
-            cb.setChecked(True)
-            cb.blockSignals(False)
         for d in (self.f_loaders, self.f_cats):
             for b in d.values():
                 b.blockSignals(True)
                 b.setChecked(False)
                 b.blockSignals(False)
+        self.f_version.blockSignals(True)
         self.f_version.setCurrentIndex(0)
+        self.f_version.blockSignals(False)
+        self.search.blockSignals(True)
         self.search.clear()
+        self.search.blockSignals(False)
         self.research()
 
     def research(self, *_):
         self.offset = 0
         self.fill(reset=True)
 
+    def _drop_tail(self):
+        """Remove the trailing stretch / «more» button / status line."""
+        while self.results.count():
+            it = self.results.itemAt(self.results.count() - 1)
+            w = it.widget()
+            if w is None or w.objectName() in ("MoreBtn", "Status"):
+                self.results.takeAt(self.results.count() - 1)
+                if w is not None:
+                    w.deleteLater()
+            else:
+                break
+
     def fill(self, reset=False):
+        self.token += 1
+        token = self.token
         q = self.query()
-        hits, total = self.win.provider.search(offset=self.offset, limit=self.limit, **q)
+        prov = self.provider()
+        offset, limit = self.offset, self.limit
         if reset:
             clear_layout(self.results)
         else:
-            it = self.results.takeAt(self.results.count() - 1)   # the stretch / «more» button
-            if it and it.widget():
-                it.widget().deleteLater()
+            self._drop_tail()
+        busy = label("Загружаем…", "Status")
+        busy.setObjectName("Status")
+        self.results.addWidget(busy)
+        self.results.addStretch(1)
+        self.win.runner.run(lambda: prov.search(offset=offset, limit=limit, **q),
+                            lambda res: self._results(token, res, prov), lambda e: self._error(token, e))
+
+    def _results(self, token, res, prov):
+        if token != self.token:
+            return
+        self.loaded_once = True
+        hits, total = res
+        self._drop_tail()
         for p in hits:
-            row = ProjectRow(p)
-            row.open.connect(self.win.open_project)
-            row.install.connect(self.win.install_project)
+            row = ProjectRow(p, self.win)
+            row.open.connect(lambda slug, pr=prov: self.win.open_project(pr, slug))
+            row.install.connect(lambda slug, pr=prov: self.win.install_project(pr, slug))
             self.results.addWidget(row)
-        shown = min(total, self.offset + len(hits))
-        self.count.setText(f"Найдено: {total} · демо-каталог (Modrinth и CurseForge подключим позже)")
+        shown = self.offset + len(hits)
+        src = "Modrinth" if prov.name == "modrinth" else "примеры CurseForge (API подключим позже)"
+        self.count.setText(f"Найдено: {total} · {src}")
         if not total:
-            self.results.addWidget(label("Ничего не нашлось. Попробуйте убрать часть фильтров.", "Hint"))
+            st = label("Ничего не нашлось. Попробуйте убрать часть фильтров.", "Hint")
+            st.setObjectName("Status")
+            self.results.addWidget(st)
         if shown < total:
             more = QPushButton(f"Показать ещё ({total - shown})")
+            more.setObjectName("MoreBtn")
             more.clicked.connect(self.more)
             self.results.addWidget(more)
-        else:
-            self.results.addStretch(1)
+        self.results.addStretch(1)
+
+    def _error(self, token, e):
+        if token != self.token:
+            return
+        self._drop_tail()
+        box = QFrame()
+        box.setObjectName("Status")
+        box.setStyleSheet(f"QFrame#Status {{ background: {theme.CURRENT['popup'] if 'popup' in theme.CURRENT else theme.CURRENT['card']};"
+                          f" border: 1px solid {theme.CURRENT['border']}; border-radius: 14px; }}")
+        v = QVBoxLayout(box)
+        v.setContentsMargins(18, 16, 18, 16)
+        v.addWidget(label("Modrinth не отвечает", "H3"))
+        v.addWidget(label(str(e), "Muted", wrap=True))
+        row = QHBoxLayout()
+        again = QPushButton("Повторить")
+        again.setObjectName("Accent")
+        again.clicked.connect(self.research)
+        row.addWidget(again)
+        demo = QPushButton("Показать примеры")
+        demo.clicked.connect(lambda: self.f_sources["curseforge"].setChecked(True))
+        row.addWidget(demo)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.results.addWidget(box)
+        self.results.addStretch(1)
+        self.count.setText("")
 
     def more(self):
         self.offset += self.limit
-        # remove the button, keep rows
-        it = self.results.takeAt(self.results.count() - 1)
-        if it and it.widget():
-            it.widget().deleteLater()
-        self.results.addStretch(1)
         self.fill()
 
     # -- mine
@@ -829,7 +1075,7 @@ class ModpacksPage(QWidget):
         self.tab_btns[key].setChecked(True)
         if key == "catalog":
             self.stack.setCurrentIndex(0)
-            if not self.results.count():
+            if not self.loaded_once and self.token == 0:
                 self.research()
         else:
             self.refresh_mine()
@@ -1078,6 +1324,111 @@ class SettingsPage(QScrollArea):
             lay.addWidget(c)
             return c
 
+        # ---- look
+        section("Оформление", "cover")
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setSingleShot(True)
+        self._apply_timer.timeout.connect(win.apply_theme)
+
+        def setv(**kw):
+            s.update(kw)
+            s.save()
+            self._apply_timer.start(120)
+            self._sync_look()
+
+        th = QComboBox()
+        for k, t in (("system", "Как в системе"), ("light", "Светлая"), ("dark", "Тёмная")):
+            th.addItem(t, k)
+        th.setCurrentIndex(max(0, th.findData(s.get("theme"))))
+        th.currentIndexChanged.connect(lambda i: setv(theme=th.itemData(i)))
+        row("Тема", th)
+        acc = QWidget()
+        al_ = QHBoxLayout(acc)
+        al_.setContentsMargins(0, 0, 0, 0)
+        al_.setSpacing(6)
+        self.accent_btns = {}
+        for key, (hexv, name) in theme.ACCENTS.items():
+            b = QToolButton()
+            b.setToolTip(name)
+            b.setFixedSize(28, 28)
+            b.setCheckable(True)
+            b.clicked.connect(lambda _=False, h=hexv: setv(accent=h))
+            al_.addWidget(b)
+            self.accent_btns[hexv] = b
+        own = QPushButton("Свой…")
+        own.clicked.connect(lambda: self._pick_accent(setv))
+        al_.addWidget(own)
+        al_.addStretch(1)
+        row("Цвет акцента", acc)
+        # window background
+        bgw = QWidget()
+        bgl = QGridLayout(bgw)
+        bgl.setContentsMargins(0, 0, 0, 0)
+        bgl.setSpacing(6)
+        self.bg_btns = {}
+        choices = [("none", "Без фона")] + [("scene:" + k, v) for k, v in backgrounds.SCENES.items()] + \
+                  [(k, k) for k in ("terracotta", "ocean", "forest", "dusk", "plum", "graphite")] + \
+                  [(g, "Ваша картинка") for g in backgrounds.gallery()[:4]]
+        for n, (bg, tip) in enumerate(choices + [("+upload", "Загрузить картинку…")]):
+            b = QToolButton()
+            b.setToolTip(tip)
+            b.setIconSize(QSize(64, 40))
+            b.setCheckable(True)
+            if bg == "+upload":
+                b.setText("+ Своя")
+                b.setFixedSize(72, 48)
+                b.clicked.connect(lambda: self._upload_bg(setv))
+            elif bg == "none":
+                b.setText("Нет")
+                b.setFixedSize(72, 48)
+                b.clicked.connect(lambda _=False: setv(backdrop="none"))
+            else:
+                b.setIcon(backgrounds.swatch(bg, 64, 40))
+                b.setFixedSize(72, 48)
+                b.clicked.connect(lambda _=False, v=bg: setv(backdrop=v))
+            bgl.addWidget(b, n // 8, n % 8)
+            self.bg_btns[bg] = b
+        bgl.setColumnStretch(8, 1)
+        row("Фон окна", bgw, "Картинка или градиент за всеми страницами. Свою картинку можно загрузить.")
+        self.glass = QCheckBox("Стекло — полупрозрачные панели поверх размытого фона")
+        self.glass.setChecked(bool(s.get("glass")))
+        self.glass.toggled.connect(lambda v: setv(glass=v, backdrop=s.get("backdrop") if s.get("backdrop", "none")
+                                                  != "none" else "scene:aurora"))
+        lay.addWidget(self.glass)
+        op = QSlider(Qt.Horizontal)
+        op.setRange(20, 95)
+        op.setValue(int(float(s.get("glass_opacity", 0.6)) * 100))
+        op.valueChanged.connect(lambda v: setv(glass_opacity=v / 100))
+        row("Плотность стекла", op)
+        bl = QSlider(Qt.Horizontal)
+        bl.setRange(0, 60)
+        bl.setValue(int(s.get("blur", 24)))
+        bl.valueChanged.connect(lambda v: (s.update(blur=v), s.save(), win.backdrop.update()))
+        row("Размытие фона", bl)
+        ve = QSlider(Qt.Horizontal)
+        ve.setRange(0, 60)
+        ve.setValue(int(s.get("veil", 18)))
+        ve.valueChanged.connect(lambda v: (s.update(veil=v), s.save(), win.backdrop.update()))
+        row("Осветление / затемнение фона", ve)
+        self.glass_rows = [op, bl, ve]
+        hf = QComboBox()
+        hf.addItem("С засечками (как у Claude)", True)
+        hf.addItem("Без засечек", False)
+        hf.setCurrentIndex(0 if s.get("serif_headings", True) else 1)
+        hf.currentIndexChanged.connect(lambda i: setv(serif_headings=hf.itemData(i)))
+        row("Заголовки", hf)
+        side = QComboBox()
+        side.addItem("Слева", "left")
+        side.addItem("Справа", "right")
+        side.setCurrentIndex(1 if s.get("sidebar_side") == "right" else 0)
+        side.currentIndexChanged.connect(lambda i: setv(sidebar_side=side.itemData(i)))
+        row("Боковая панель", side, "Скрыть и показать панель — кнопка «« / »» в её шапке или ⌘\\.")
+        reset = QPushButton("Вернуть оформление по умолчанию")
+        reset.clicked.connect(lambda: setv(accent="#D97757", backdrop="none", glass=False, glass_opacity=0.6,
+                                           blur=24, veil=18, serif_headings=True, sidebar_side="left"))
+        lay.addWidget(reset, 0, Qt.AlignLeft)
+        self._sync_look()
+
         section("Игра", "cube")
         gd = QWidget()
         gl = QHBoxLayout(gd)
@@ -1148,12 +1499,6 @@ class SettingsPage(QScrollArea):
         check("Запускать на весь экран", "fullscreen")
 
         section("Лаунчер", "settings")
-        th = QComboBox()
-        for k, t in (("system", "Как в системе"), ("light", "Светлая"), ("dark", "Тёмная")):
-            th.addItem(t, k)
-        th.setCurrentIndex(max(0, th.findData(s.get("theme"))))
-        th.currentIndexChanged.connect(lambda i: (s.update(theme=th.itemData(i)), s.save(), win.apply_theme()))
-        row("Тема", th)
         lang = QComboBox()
         lang.addItem("Русский")
         lang.setEnabled(False)
@@ -1181,6 +1526,37 @@ class SettingsPage(QScrollArea):
                             wrap=True))
         lay.addStretch(1)
         self.setWidget(body)
+
+    def _sync_look(self):
+        s = self.win.settings
+        self.glass.blockSignals(True)
+        self.glass.setChecked(bool(s.get("glass")))
+        self.glass.blockSignals(False)
+        acc = s.get("accent") or "#D97757"
+        for hexv, b in self.accent_btns.items():
+            on = hexv.lower() == acc.lower()
+            b.setChecked(on)
+            b.setStyleSheet(f"QToolButton {{ background: {hexv}; border-radius: 14px;"
+                            f" border: {'3px solid ' + theme.CURRENT['text'] if on else '1px solid transparent'}; }}")
+        cur = s.get("backdrop") or "none"
+        for bg, b in self.bg_btns.items():
+            b.setChecked(bg == cur)
+        glass_ok = cur != "none"
+        for w in self.glass_rows:
+            w.setEnabled(glass_ok)
+
+    def _pick_accent(self, setv):
+        from PySide6.QtWidgets import QColorDialog
+
+        col = QColorDialog.getColor(QColor(self.win.settings.get("accent") or "#D97757"), self, "Цвет акцента")
+        if col.isValid():
+            setv(accent=col.name().upper())
+
+    def _upload_bg(self, setv):
+        path, _ = QFileDialog.getOpenFileName(self, "Картинка для фона", "",
+                                              "Картинки (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
+        if path:
+            setv(backdrop=backgrounds.import_image(path))
 
     def _mem(self, gb):
         total = system_memory_mb() // 1024
@@ -1249,14 +1625,54 @@ class LaunchDialog(QDialog):
         if v >= 100:
             self.timer.stop()
             self.status.setText("Готово к запуску")
-            self.done.setText("Интерфейс запуска работает. Скачивание и запуск самой игры подключим на следующем "
-                              "шаге вместе с Modrinth и CurseForge.")
+            self.done.setText("Сборка и её моды на месте. Скачивание самого Minecraft, загрузчика и Java и запуск "
+                              "игры — следующий шаг.")
             self.close_btn.setText("Понятно")
             self.close_btn.setObjectName("Accent")
             self.close_btn.style().unpolish(self.close_btn)
             self.close_btn.style().polish(self.close_btn)
             self.close_btn.clicked.disconnect()
             self.close_btn.clicked.connect(self.accept)
+
+
+class Backdrop(QWidget):
+    """Paints the window background (picture / gradient), blurred and veiled for the glass look."""
+
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+        self._light = {}
+
+    def paintEvent(self, _):
+        c = theme.CURRENT
+        bg = c.get("backdrop", "none")
+        p = QPainter(self)
+        if bg == "none":
+            p.fillRect(self.rect(), QColor(c.get("dialog", "#FAF9F5")))
+            p.end()
+            return
+        dpr = self.devicePixelRatioF()
+        w, h = max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr))
+        if c.get("glass"):
+            pix = backgrounds.blurred(bg, w, h, int(self.win.settings.get("blur", 24) * dpr))
+        else:
+            pix = backgrounds._scaled(bg, w, h) if backgrounds.is_picture(bg) else None
+            if pix is None or pix.isNull():
+                backgrounds.paint(p, self.rect(), bg)
+                pix = None
+        if pix is not None:
+            p.drawPixmap(self.rect(), pix)
+        veil = int(self.win.settings.get("veil", 18))
+        dark = c["name"] == "dark"
+        if self._light.get(bg) is None:
+            self._light[bg] = backgrounds.is_light(bg)
+        if self._light[bg] == dark:   # dark picture under the light theme (or the other way): keep text readable
+            veil += 40
+        if dark:
+            p.fillRect(self.rect(), QColor(0, 0, 0, int(255 * min(85, veil + 18) / 100)))
+        else:
+            p.fillRect(self.rect(), QColor(250, 249, 245, int(255 * min(85, veil) / 100)))
+        p.end()
 
 
 class MainWindow(QMainWindow):
@@ -1266,30 +1682,41 @@ class MainWindow(QMainWindow):
         self.settings = settings or Settings()
         self.accounts = accounts or AccountStore()
         self.instances = instances or InstanceStore()
-        self.provider = provider or DemoProvider()
+        from .modrinth import ModrinthProvider
+
+        self.providers = {"modrinth": provider or ModrinthProvider(), "curseforge": DemoProvider()}
+        self.provider = self.providers["modrinth"]
+        self.runner = net.Runner(int(self.settings.get("parallel_downloads", 6)))
+        self.icons = net.IconCache(self.runner)
         self.setWindowTitle(APP_NAME)
         self.setObjectName("Main")
         self.resize(1240, 800)
         self.setMinimumSize(980, 640)
         self.apply_theme(rebuild=False)
+        self.backdrop = Backdrop(self)
+        bl = QVBoxLayout(self.backdrop)
+        bl.setContentsMargins(0, 0, 0, 0)
         self.root = QStackedWidget()
-        self.setCentralWidget(self.root)
+        bl.addWidget(self.root)
+        self.setCentralWidget(self.backdrop)
         self.splash = SplashPage()
         self.splash.finished.connect(self.show_main)
         self.root.addWidget(self.splash)
         shell = QWidget()
-        h = QHBoxLayout(shell)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(0)
+        self.shell_lay = QHBoxLayout(shell)
+        self.shell_lay.setContentsMargins(0, 0, 0, 0)
+        self.shell_lay.setSpacing(0)
         self.side = QFrame()
-        self.side.setObjectName("Side")
         self.side.setFixedWidth(210)
         self.side_lay = QVBoxLayout(self.side)
         self.side_lay.setContentsMargins(12, 18, 12, 14)
         self.side_lay.setSpacing(3)
-        h.addWidget(self.side)
+        self.rail = QFrame()
+        self.rail.setFixedWidth(56)
+        self.rail_lay = QVBoxLayout(self.rail)
+        self.rail_lay.setContentsMargins(8, 16, 8, 12)
+        self.rail_lay.setSpacing(6)
         self.pages = QStackedWidget()
-        h.addWidget(self.pages, 1)
         self.root.addWidget(shell)
         self.home = HomePage(self)
         self.modpacks = ModpacksPage(self)
@@ -1297,9 +1724,11 @@ class MainWindow(QMainWindow):
         self.settings_page = SettingsPage(self)
         for p in (self.home, self.modpacks, self.accounts_page, self.settings_page):
             self.pages.addWidget(p)
+        self.place_side()
         self.build_side()
         for keys, fn in (("Ctrl+1", lambda: self.go("home")), ("Ctrl+2", lambda: self.go("modpacks")),
-                         ("Ctrl+3", lambda: self.go("accounts")), ("Ctrl+,", lambda: self.go("settings"))):
+                         ("Ctrl+3", lambda: self.go("accounts")), ("Ctrl+,", lambda: self.go("settings")),
+                         ("Ctrl+\\", self.toggle_sidebar)):
             sc = QShortcut(QKeySequence(keys), self)
             sc.activated.connect(fn)
 
@@ -1321,19 +1750,83 @@ class MainWindow(QMainWindow):
                 dark = self.app.palette().window().color().lightness() < 128
         else:
             dark = mode == "dark"
-        colors = theme.DARK if dark else theme.LIGHT
+        colors = theme.compose(theme.DARK if dark else theme.LIGHT, self.settings)
         theme.use(colors)
         self.app.setStyleSheet(theme.stylesheet(colors))
         if rebuild:
+            self.place_side()
             self.build_side()
             self.refresh()
+            self.settings_page._sync_look()
+            self.backdrop.update()
+
+    def place_side(self):
+        """Side bar (or its icon rail when hidden) on the left or on the right of the pages."""
+        right = self.settings.get("sidebar_side") == "right"
+        for w in (self.side, self.rail, self.pages):
+            self.shell_lay.removeWidget(w)
+        order = [self.pages, self.side, self.rail] if right else [self.side, self.rail, self.pages]
+        for w in order:
+            self.shell_lay.addWidget(w, 1 if w is self.pages else 0)
+        for w in (self.side, self.rail):
+            w.setObjectName("SideR" if right else "Side")
+            w.style().unpolish(w)
+            w.style().polish(w)
+        hidden = bool(self.settings.get("sidebar_hidden"))
+        self.side.setVisible(not hidden)
+        self.rail.setVisible(hidden)
+
+    def toggle_sidebar(self):
+        self.settings["sidebar_hidden"] = not self.settings.get("sidebar_hidden")
+        self.settings.save()
+        self.place_side()
+        self.build_side()
+        self.go(getattr(self, "current_page", "home"))
 
     def build_side(self):
+        right = self.settings.get("sidebar_side") == "right"
+        clear_layout(self.rail_lay)
+        logo = label(LOGO, "Gamma")
+        logo.setAlignment(Qt.AlignCenter)
+        self.rail_lay.addWidget(logo)
+        expand = QToolButton()
+        expand.setObjectName("CollapseBtn")
+        expand.setText("«" if right else "»")
+        expand.setToolTip("Показать панель  ⌘\\")
+        expand.clicked.connect(self.toggle_sidebar)
+        self.rail_lay.addWidget(expand, 0, Qt.AlignHCenter)
+        self.rail_nav = {}
+        for key, tip, icon in (("home", "Главная", "home"), ("modpacks", "Сборки", "cube"),
+                               ("accounts", "Аккаунты", "user"), ("settings", "Настройки", "settings")):
+            b = QToolButton()
+            b.setIcon(ic(icon))
+            b.setIconSize(QSize(18, 18))
+            b.setToolTip(tip)
+            b.setCheckable(True)
+            b.setFixedSize(38, 34)
+            b.clicked.connect(lambda _=False, k=key: self.go(k))
+            self.rail_lay.addWidget(b, 0, Qt.AlignHCenter)
+            self.rail_nav[key] = b
+        self.rail_lay.addStretch(1)
+        acc = self.account()
+        head = QToolButton()
+        head.setIcon(QIcon(pixel_head(acc["name"] if acc else "?", 30, 6)))
+        head.setIconSize(QSize(30, 30))
+        head.setToolTip(acc["name"] if acc else "Добавить аккаунт")
+        head.clicked.connect(lambda: self.go("accounts"))
+        self.rail_lay.addWidget(head, 0, Qt.AlignHCenter)
+
         clear_layout(self.side_lay)
         brand = QHBoxLayout()
         brand.addWidget(label(LOGO, "Gamma"))
         brand.addWidget(label(APP_NAME, "Logo"))
         brand.addStretch(1)
+        hide = QToolButton()
+        hide.setObjectName("CollapseBtn")
+        hide.setText("»" if right else "«")
+        hide.setToolTip("Скрыть панель  ⌘\\")
+        hide.clicked.connect(self.toggle_sidebar)
+        brand.addWidget(hide)
         self.side_lay.addLayout(brand)
         self.side_lay.addSpacing(14)
         self.nav = {}
@@ -1347,16 +1840,15 @@ class MainWindow(QMainWindow):
             self.side_lay.addWidget(b)
             self.nav[key] = b
         self.side_lay.addStretch(1)
-        acc = self.account()
         chip = QPushButton()
         chip.setObjectName("AccountChip")
         chip.setCursor(Qt.PointingHandCursor)
         cl = QHBoxLayout(chip)
         cl.setContentsMargins(8, 6, 8, 6)
-        head = QLabel()
-        head.setPixmap(pixel_head(acc["name"] if acc else "?", 30, 6))
-        head.setAttribute(Qt.WA_TransparentForMouseEvents)
-        cl.addWidget(head)
+        hd = QLabel()
+        hd.setPixmap(pixel_head(acc["name"] if acc else "?", 30, 6))
+        hd.setAttribute(Qt.WA_TransparentForMouseEvents)
+        cl.addWidget(hd)
         col = QVBoxLayout()
         col.setSpacing(0)
         n = label(acc["name"] if acc else "Нет аккаунта", "ChipName")
@@ -1380,8 +1872,9 @@ class MainWindow(QMainWindow):
         elif key == "modpacks" and self.modpacks.stack.currentIndex() == 1:
             self.modpacks.refresh_mine()
         self.pages.setCurrentWidget(page)
-        for k, b in self.nav.items():
-            b.setChecked(k == key)
+        for d in (self.nav, getattr(self, "rail_nav", {})):
+            for k, b in d.items():
+                b.setChecked(k == key)
 
     def refresh(self):
         key = getattr(self, "current_page", "home")
@@ -1467,14 +1960,14 @@ class MainWindow(QMainWindow):
         path.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
-    def open_project(self, slug):
-        ProjectDialog(self, self.provider, slug).exec()
+    def open_project(self, provider, slug):
+        ProjectDialog(self, provider, slug).exec()
 
-    def install_project(self, slug, version=None):
-        p = self.provider.project(slug)
+    def install_project(self, provider, slug, version=None):
+        p = (provider.cached(slug) if hasattr(provider, "cached") else None) or provider.project(slug)
         if not p:
             return None
-        dlg = InstallDialog(self, p, version)
+        dlg = InstallDialog(self, provider, p, version)
         if dlg.exec() and dlg.result_inst:
             self.select_instance(dlg.result_inst["id"], go_home=False)
             self.modpacks.show_tab("mine")

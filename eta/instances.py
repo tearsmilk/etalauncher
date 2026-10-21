@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .paths import data_dir, load_json, save_json
 
-MC_VERSIONS = ["1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5",
+MC_VERSIONS = ["26.3", "26.2", "26.1", "1.21.11", "1.21.8", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5",
                "1.12.2", "1.8.9", "1.7.10"]
 LOADERS = {"vanilla": "Vanilla", "fabric": "Fabric", "forge": "Forge", "neoforge": "NeoForge", "quilt": "Quilt"}
 
@@ -22,10 +22,12 @@ class InstanceStore:
     def get(self, iid):
         return next((x for x in self.items if x["id"] == iid), None)
 
-    def add(self, name, mc_version, loader="vanilla", source="own", project=None, mods=0, icon=None):
-        inst = {"id": uuid.uuid4().hex[:10], "name": name, "mc_version": mc_version, "loader": loader,
+    def add(self, name, mc_version, loader="vanilla", source="own", project=None, mods=0, icon=None, iid=None,
+            **extra):
+        inst = {"id": iid or uuid.uuid4().hex[:10], "name": name, "mc_version": mc_version, "loader": loader,
                 "source": source, "project": project or "", "mods": int(mods), "icon": icon or name,
                 "created": time.time(), "last_played": 0, "playtime_min": 0, "memory_mb": 0}
+        inst.update(extra)
         self.items.insert(0, inst)
         self.save()
         return inst
@@ -43,6 +45,10 @@ class InstanceStore:
 
     def recent(self, n=6):
         return sorted(self.items, key=lambda x: (x.get("last_played", 0), x.get("created", 0)), reverse=True)[:n]
+
+
+def new_id():
+    return uuid.uuid4().hex[:10]
 
 
 def describe(inst):

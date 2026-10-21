@@ -1,5 +1,5 @@
-// Эта (Eta) — Screens page: Загрузка, Главная (Light / Dark), Сборки — каталог, Мои сборки, Аккаунты, Новый аккаунт,
-// Настройки. Run after 01_ui_kit.js.
+// Эта (Eta) — Screens page: Загрузка, Главная (Light / Dark), Главная — стекло (панель справа, свёрнута), Сборки —
+// каталог, Мои сборки, Аккаунты, Новый аккаунт, Настройки (с «Оформлением»). Run after 01_ui_kit.js.
 let page = figma.root.children.find(p => p.name === "Screens");
 if (!page) { page = figma.createPage(); page.name = "Screens"; }
 await figma.setCurrentPageAsync(page);
@@ -99,6 +99,28 @@ function shell(name, active) {
   const body = al("VERTICAL", {name: "Page", gap: 14, pad: [26, 32, 26, 32]}); body.layoutGrow = 1; body.layoutAlign = "STRETCH"; f.appendChild(body);
   return [f, body];
 }
+// compact hero card (eta/ui.py Hero, height 132): icon, title + meta + picker / folder, Play on the right
+function heroCard(dark, w = 1006, accent = "accent") {
+  const hero = figma.createFrame(); hero.name = "Hero"; hero.resize(w, 132); hero.cornerRadius = 18; hero.clipsContent = true;
+  hero.fills = [{type: "GRADIENT_LINEAR", gradientTransform: [[0, 1, 0], [-1, 0, 1]], gradientStops: [{position: 0, color: {...hex(dark ? "#1F2438" : "#A8D4DE"), a: 1}}, {position: 1, color: {...hex(dark ? "#3B4A6B" : "#5DAFC4"), a: 1}}]}];
+  for (let i = 0; i < Math.ceil(w / 24); i++) { const h = 40 + ((i * 37) % 5) * 14; const r = figma.createRectangle(); r.resize(24, h); r.x = i * 24; r.y = 132 - h; r.fills = [{type: "SOLID", color: hex(i % 3 ? "#5E8A48" : "#7BA05B")}]; hero.appendChild(r); }
+  const shade = figma.createRectangle(); shade.resize(w, 132); shade.fills = [{type: "SOLID", color: {r: 0, g: 0, b: 0}, opacity: 0.45}]; hero.appendChild(shade);
+  hero.appendChild(blockIcon(76, "#E8B23A", "#C08A2A", "Т")).x = 22; hero.children[hero.children.length - 1].y = 28;
+  const tc = al("VERTICAL", {name: "Text", gap: 4}); hero.appendChild(tc); tc.x = 114; tc.y = 22;
+  tc.appendChild(txt("Тихая гавань", {family: SERIF, size: 30, color: "white"})); tc.appendChild(txt("Fabric 1.21.1 · 96 модов · в игре 3 ч 12 мин", {style: "Semi Bold", color: "white"}));
+  const acts = al("HORIZONTAL", {name: "Picker + folder", gap: 6, align: "CENTER"}); const pk = al("HORIZONTAL", {name: "Picker", pad: [6, 10, 6, 10], radius: 8, fill: "white"}); pk.resize(220, 30); pk.primaryAxisSizingMode = "FIXED"; pk.appendChild(txt("Тихая гавань  ▾", {color: "ink"})); acts.appendChild(pk);
+  const fo = al("HORIZONTAL", {name: "Folder", pad: [6, 10, 6, 10], radius: 8}); fo.fills = [{type: "SOLID", color: {r: 1, g: 1, b: 1}, opacity: 0.18}]; fo.appendChild(txt("🗀", {color: "white"})); acts.appendChild(fo); tc.appendChild(acts);
+  const pl = al("HORIZONTAL", {name: "Play", pad: [10, 30, 10, 30], radius: 10, fill: accent}); pl.appendChild(txt("▶  Играть", {size: 16, style: "Semi Bold", color: "on-accent"})); hero.appendChild(pl); pl.x = w - pl.width - 22; pl.y = 46;
+  return hero;
+}
+// icon rail — the side bar when it is hidden (« / » or ⌘\)
+function rail() {
+  const r = al("VERTICAL", {name: "Rail", gap: 10, pad: [16, 10, 14, 10], fill: "sidebar", align: "CENTER"}); r.resize(56, 820); r.primaryAxisSizingMode = "FIXED"; r.counterAxisSizingMode = "FIXED";
+  r.appendChild(txt("η", {family: SERIF, style: SERIF_I, size: 26, color: "accent"})); r.appendChild(txt("»", {color: "muted"}));
+  for (const [i, t] of ["⌂", "▣", "☺", "⚙"].entries()) { const b = al("HORIZONTAL", {name: t, pad: [6, 9, 6, 9], radius: 8, fill: i === 0 ? "selected" : null}); b.appendChild(txt(t)); r.appendChild(b); }
+  const sp = figma.createFrame(); sp.fills = []; sp.resize(10, 10); sp.layoutGrow = 1; r.appendChild(sp); r.appendChild(head(30));
+  return r;
+}
 let X = 0;
 function place(f) { f.x = X; f.y = 0; X += f.width + 80; page.appendChild(f); }
 
@@ -117,16 +139,7 @@ for (const mode of ["Light", "Dark"]) {
   MODE = mode;
   const [f, b] = shell("Главная — " + mode, 0);
   b.appendChild(txt("Добрый вечер, Hoka_Neko", {family: SERIF, size: 28}));
-  const hero = figma.createFrame(); hero.name = "Hero"; hero.resize(1006, 300); hero.cornerRadius = 18; hero.clipsContent = true;
-  hero.fills = [{type: "GRADIENT_LINEAR", gradientTransform: [[0, 1, 0], [-1, 0, 1]], gradientStops: [{position: 0, color: {...hex(mode === "Dark" ? "#1F2438" : "#F3D2B3"), a: 1}}, {position: 1, color: {...hex(mode === "Dark" ? "#3B4A6B" : "#E58F6B"), a: 1}}]}];
-  for (let i = 0; i < 42; i++) { const h = 40 + ((i * 37) % 5) * 22; const r = figma.createRectangle(); r.resize(24, h); r.x = i * 24; r.y = 300 - h; r.fills = [{type: "SOLID", color: hex(i % 3 ? "#5E8A48" : "#7BA05B")}]; hero.appendChild(r); }
-  const shade = figma.createRectangle(); shade.resize(1006, 300); shade.fills = [{type: "GRADIENT_LINEAR", gradientTransform: [[0, 1, 0], [-1, 0, 1]], gradientStops: [{position: 0.4, color: {r: 0, g: 0, b: 0, a: 0}}, {position: 1, color: {r: 0, g: 0, b: 0, a: 0.5}}]}]; hero.appendChild(shade);
-  const hc = al("VERTICAL", {name: "Content", gap: 12}); hero.appendChild(hc); hc.x = 32; hc.y = 140;
-  const tr = al("HORIZONTAL", {name: "Title", gap: 16, align: "CENTER"}); tr.appendChild(blockIcon(72, "#E8B23A", "#C08A2A", "Т"));
-  const tc = al("VERTICAL", {name: "Text", gap: 2}); tc.appendChild(txt("Тихая гавань", {family: SERIF, size: 34, color: "white"})); tc.appendChild(txt("Fabric 1.21.1 · 96 модов · в игре 3 ч 12 мин", {color: "white"})); tr.appendChild(tc); hc.appendChild(tr);
-  const acts = al("HORIZONTAL", {name: "Actions", gap: 8, align: "CENTER"}); const pl = al("HORIZONTAL", {name: "Play", pad: [10, 30, 10, 30], radius: 10, fill: "accent"}); pl.appendChild(txt("▶  Играть", {size: 16, style: "Semi Bold", color: "on-accent"})); acts.appendChild(pl);
-  const pk = al("HORIZONTAL", {name: "Picker", pad: [8, 10, 8, 10], radius: 8, fill: "white"}); pk.resize(220, 34); pk.primaryAxisSizingMode = "FIXED"; pk.appendChild(txt("Тихая гавань  ▾", {color: "ink"})); acts.appendChild(pk); hc.appendChild(acts);
-  b.appendChild(hero);
+  b.appendChild(heroCard(mode === "Dark"));
   b.appendChild(txt("НЕДАВНИЕ СБОРКИ", {size: 10, style: "Semi Bold", color: "muted"}));
   const rec = al("HORIZONTAL", {name: "Recent", gap: 12});
   for (const [n, v, c1, c2] of [["Тихая гавань", "Fabric 1.21.1", "#E8B23A", "#C08A2A"], ["Арканум", "NeoForge 1.20.1", "#D97757", "#C6613F"], ["Выживание с друзьями", "Forge 1.20.1", "#5DAFC4", "#3B8A9F"]]) {
@@ -136,7 +149,7 @@ for (const mode of ["Light", "Dark"]) {
   b.appendChild(rec);
   b.appendChild(txt("НОВОСТИ ЛАУНЧЕРА", {size: 10, style: "Semi Bold", color: "muted"}));
   const nw = al("HORIZONTAL", {name: "News", gap: 12});
-  for (const [t, d] of [["Добро пожаловать в Эту", "Сборки, аккаунты и настройки уже работают."], ["Modrinth и CurseForge — скоро", "Каталог пока показывает примеры."], ["Оффлайн-аккаунты", "Играйте с любым ником."]]) {
+  for (const [t, d] of [["Modrinth подключён", "Сборки ставятся в один клик со всеми модами."], ["Своё оформление", "Акцент, фон и стекло — в Настройках."], ["Оффлайн-аккаунты", "Играйте с любым ником."]]) {
     const c = al("VERTICAL", {name: t, gap: 4, pad: [14, 16, 14, 16], radius: 14, fill: "card", stroke: "border"}); c.resize(326, 96); c.primaryAxisSizingMode = "FIXED"; c.counterAxisSizingMode = "FIXED";
     c.appendChild(txt(t, {family: SERIF, size: 16})); c.appendChild(txt(d, {color: "muted", w: 294})); nw.appendChild(c);
   }
@@ -144,6 +157,21 @@ for (const mode of ["Light", "Dark"]) {
   place(f);
 }
 MODE = "Light";
+
+// Главная — стекло: картинка «Сияние» на фоне (размыта), полупрозрачные панели, акцент «Океан», панель справа свёрнута
+{
+  const f = frame("Главная — стекло, панель справа", 1280, 820); f.layoutMode = "HORIZONTAL"; f.primaryAxisSizingMode = "FIXED"; f.counterAxisSizingMode = "FIXED";
+  f.fills = [{type: "GRADIENT_LINEAR", gradientTransform: [[0, 1, 0], [-1, 0, 1]], gradientStops: [{position: 0, color: {...hex("#2A2F4A"), a: 1}}, {position: 0.45, color: {...hex("#3E7A78"), a: 1}}, {position: 1, color: {...hex("#1A2030"), a: 1}}]}];
+  const veil = figma.createRectangle(); veil.name = "Veil"; veil.resize(1280, 820); veil.fills = [{type: "SOLID", color: hex("#FAF9F5"), opacity: 0.58}]; f.appendChild(veil); veil.layoutPositioning = "ABSOLUTE";
+  const body = al("VERTICAL", {name: "Page", gap: 14, pad: [26, 32, 26, 32]}); body.layoutGrow = 1; body.layoutAlign = "STRETCH"; f.appendChild(body);
+  body.appendChild(txt("Доброе утро, Hoka_Neko", {family: SERIF, size: 28}));
+  body.appendChild(heroCard(false, 1160, "l-blue"));
+  const nw = al("HORIZONTAL", {name: "Glass cards", gap: 12});
+  for (const t of ["Modrinth подключён", "Своё оформление", "Оффлайн-аккаунты"]) { const c = al("VERTICAL", {name: t, gap: 4, pad: [14, 16, 14, 16], radius: 14}); c.fills = [{type: "SOLID", color: hex("#FFFFFF"), opacity: 0.6}]; c.strokes = [{type: "SOLID", color: hex("#FFFFFF"), opacity: 0.38}]; c.resize(378, 96); c.primaryAxisSizingMode = "FIXED"; c.counterAxisSizingMode = "FIXED"; c.appendChild(txt(t, {family: SERIF, size: 16})); nw.appendChild(c); }
+  body.appendChild(nw);
+  const r = rail(); r.fills = [{type: "SOLID", color: hex("#F0EEE6"), opacity: 0.47}]; f.appendChild(r);
+  place(f);
+}
 
 // Сборки — каталог
 {
@@ -224,8 +252,17 @@ MODE = "Light";
   b.appendChild(txt("Настройки", {family: SERIF, size: 28}));
   const sec = t => b.appendChild(txt(t, {family: SERIF, size: 16}));
   const row = (t, v) => { const r = al("HORIZONTAL", {name: t, gap: 10, align: "CENTER"}); r.resize(1006, 28); r.primaryAxisSizingMode = "FIXED"; const l = txt(t); l.resize(230, l.height); l.textAutoResize = "HEIGHT"; r.appendChild(l); const fl = al("HORIZONTAL", {name: "Field", pad: [4, 8, 4, 8], radius: 6, fill: "input", stroke: "border"}); fl.layoutGrow = 1; fl.appendChild(txt(v)); r.appendChild(fl); b.appendChild(r); };
+  sec("▤  Оформление"); row("Тема", "Как в системе");
+  const sw = al("HORIZONTAL", {name: "Цвет акцента", gap: 6, align: "CENTER"}); sw.appendChild(txt("Цвет акцента                                          "));
+  for (const [i, c] of ["#D97757", "#3F7FD0", "#4E8A57", "#9B6BC9", "#D9668F", "#E0A433", "#3FA7C9", "#55575E", "#D2453B", "#3BB08F"].entries()) { const e = figma.createEllipse(); e.resize(24, 24); e.fills = [{type: "SOLID", color: hex(c)}]; if (!i) { e.strokes = [fill("text")]; e.strokeWeight = 3; } sw.appendChild(e); }
+  sw.appendChild(btn("Свой…")); b.appendChild(sw);
+  const bgs = al("HORIZONTAL", {name: "Фон окна", gap: 6}); bgs.appendChild(txt("Фон окна                                                    "));
+  for (const [a, c] of [["#FAF9F5", "#FAF9F5"], ["#F3D2B3", "#E58F6B"], ["#A8D4DE", "#5DAFC4"], ["#1F2438", "#3B4A6B"], ["#CFE0C8", "#8DB08A"], ["#2A2F4A", "#3E7A78"], ["#9B7BC4", "#6B4A7A"]]) { const t = figma.createRectangle(); t.resize(64, 40); t.cornerRadius = 6; t.fills = [{type: "GRADIENT_LINEAR", gradientTransform: [[0, 1, 0], [-1, 0, 1]], gradientStops: [{position: 0, color: {...hex(a), a: 1}}, {position: 1, color: {...hex(c), a: 1}}]}]; bgs.appendChild(t); }
+  bgs.appendChild(btn("+ Своя")); b.appendChild(bgs);
+  b.appendChild(txt("☑ Стекло — полупрозрачные панели поверх размытого фона")); row("Плотность стекла", "━━━━━━━━━●────────"); row("Размытие фона", "━━━━━━●───────────");
+  row("Заголовки", "С засечками (как у Claude)"); row("Боковая панель", "Слева  ·  скрыть — « / » или ⌘\\");
   sec("▣  Игра"); row("Папка игры", "~/Library/Application Support/Eta/minecraft"); row("Оперативная память", "━━━━━━●──────────  4 ГБ из 16 ГБ"); row("Java", "Автоматически (подходящая Java для версии игры)"); row("Аргументы JVM", "-XX:+UseG1GC"); row("Размер окна игры", "1280 × 720");
-  sec("⚙  Лаунчер"); row("Тема", "Как в системе"); row("Язык", "Русский"); b.appendChild(txt("☐ Сворачивать лаунчер, когда игра запущена")); b.appendChild(txt("☐ Показывать консоль игры"));
+  sec("⚙  Лаунчер"); row("Язык", "Русский"); b.appendChild(txt("☐ Сворачивать лаунчер, когда игра запущена")); b.appendChild(txt("☐ Показывать консоль игры"));
   sec("⤓  Загрузки"); row("Источник по умолчанию", "Modrinth"); row("Одновременных загрузок", "6");
   place(f);
 }

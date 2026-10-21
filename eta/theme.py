@@ -37,20 +37,89 @@ BACKGROUNDS = {
 SERIF = '"Georgia", "Tiempos Text", "Times New Roman", serif'
 
 
+ACCENTS = {
+    "terracotta": ("#D97757", "Терракота"), "ocean": ("#3B82C4", "Океан"), "forest": ("#4E8A5A", "Лес"),
+    "plum": ("#8E6BC4", "Слива"), "rose": ("#D06A8F", "Роза"), "gold": ("#D9A23A", "Золото"),
+    "sky": ("#3FA7C4", "Небо"), "graphite": ("#5E5D59", "Графит"), "crimson": ("#C8463C", "Рубин"),
+    "mint": ("#3FB08A", "Мята"),
+}
+
+
+def _rgb(h):
+    h = h.lstrip("#")
+    if len(h) == 8:
+        h = h[2:]
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def rgba(h, a):
+    r, g, b = _rgb(h)
+    return f"rgba({r}, {g}, {b}, {max(0.0, min(1.0, a)):.2f})"
+
+
+def shade(h, k):
+    """k > 0 lighter, k < 0 darker (fraction)."""
+    r, g, b = _rgb(h)
+    if k < 0:
+        r, g, b = (int(x * (1 + k)) for x in (r, g, b))
+    else:
+        r, g, b = (int(x + (255 - x) * k) for x in (r, g, b))
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def luminance(h):
+    r, g, b = _rgb(h)
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
+
+def compose(base, s):
+    """Base palette + the user's look: accent colour, window background, glass, heading font."""
+    c = dict(base)
+    acc = s.get("accent") or "#D97757"
+    if acc in ACCENTS:
+        acc = ACCENTS[acc][0]
+    c["accent"] = acc
+    c["accent_hover"] = shade(acc, -0.12) if base["name"] == "light" else shade(acc, 0.12)
+    c["accent_text"] = "#141413" if luminance(acc) > 0.62 else "#FFFFFF"
+    c["dialog"] = base["bg"]
+    c["popup"] = base["card"]
+    c["serif"] = SERIF if s.get("serif_headings", True) else '"Helvetica Neue", "Inter", sans-serif'
+    backdrop = s.get("backdrop") or "none"
+    c["backdrop"] = backdrop
+    c["glass"] = bool(s.get("glass")) and backdrop != "none"
+    if backdrop != "none":
+        c["bg"] = "transparent"
+        if c["glass"]:
+            op = float(s.get("glass_opacity", 0.6))
+            for key, mul in (("card", 1.0), ("panel", 0.85), ("sidebar", 0.78), ("hover", 0.9), ("selected", 0.95)):
+                c[key] = rgba(base[key], op * mul)
+            c["input"] = rgba(base["input"], min(1.0, op + 0.25))
+            c["border"] = rgba("#FFFFFF", 0.38) if base["name"] == "light" else rgba("#FFFFFF", 0.12)
+    return c
+
+
 def stylesheet(c):
+    c = dict(c)
+    c.setdefault("dialog", c["bg"])
+    c.setdefault("popup", c["card"])
+    c.setdefault("serif", SERIF)
     return f"""
 * {{ color: {c['text']}; font-size: 12px; }}
 QMainWindow, #Main {{ background: {c['bg']}; }}
-QDialog {{ background: {c['bg']}; }}
-QToolTip {{ background: {c['card']}; color: {c['text']}; border: 1px solid {c['border']}; padding: 4px; }}
+QDialog {{ background: {c['dialog']}; }}
+QToolTip {{ background: {c['popup']}; color: {c['text']}; border: 1px solid {c['border']}; padding: 4px; }}
 #Side {{ background: {c['sidebar']}; border-right: 1px solid {c['border']}; }}
+#SideR {{ background: {c['sidebar']}; border-left: 1px solid {c['border']}; }}
+#SideR QPushButton {{ text-align: left; border: none; background: transparent; padding: 7px 10px; border-radius: 7px; }}
+#SideR QPushButton:hover {{ background: {c['hover']}; }}
+#SideR QPushButton:checked {{ background: {c['selected']}; }}
 #Side QPushButton {{ text-align: left; border: none; background: transparent; padding: 7px 10px; border-radius: 7px; }}
 #Side QPushButton:hover {{ background: {c['hover']}; }}
 #Side QPushButton:checked {{ background: {c['selected']}; }}
-#Gamma {{ color: {c['accent']}; font-family: {SERIF}; font-style: italic; font-size: 30px; }}
-#Logo {{ font-family: {SERIF}; font-size: 17px; }}
-#Title {{ font-family: {SERIF}; font-size: 28px; }}
-#H2 {{ font-family: {SERIF}; font-size: 18px; }}
+#Gamma {{ color: {c['accent']}; font-family: {c['serif']}; font-style: italic; font-size: 30px; }}
+#Logo {{ font-family: {c['serif']}; font-size: 17px; }}
+#Title {{ font-family: {c['serif']}; font-size: 28px; }}
+#H2 {{ font-family: {c['serif']}; font-size: 18px; }}
 #Section {{ color: {c['muted']}; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
 #Muted {{ color: {c['muted']}; }}
 #Hint {{ color: {c['muted']}; font-size: 11px; }}
@@ -77,12 +146,12 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
     background: {c['input']}; border: 1px solid {c['border']}; border-radius: 6px; padding: 3px 6px; min-height: 16px; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid {c['accent']}; }}
 QComboBox::drop-down {{ border: none; width: 18px; }}
-QComboBox QAbstractItemView {{ background: {c['card']}; border: 1px solid {c['border']};
+QComboBox QAbstractItemView {{ background: {c['popup']}; border: 1px solid {c['border']};
     selection-background-color: {c['selected']}; selection-color: {c['text']}; outline: none; }}
 QCheckBox {{ spacing: 6px; }}
 QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 4px; border: 1px solid {c['muted']}; background: {c['input']}; }}
 QCheckBox::indicator:checked {{ background: {c['accent']}; border: 1px solid {c['accent']}; }}
-QMenu {{ background: {c['card']}; border: 1px solid {c['border']}; padding: 6px; border-radius: 10px; }}
+QMenu {{ background: {c['popup']}; border: 1px solid {c['border']}; padding: 6px; border-radius: 10px; }}
 QMenu::item {{ padding: 5px 22px 5px 10px; border-radius: 6px; }}
 QMenu::item:selected {{ background: {c['selected']}; color: {c['text']}; }}
 QMenu::item:disabled {{ color: {c['faint']}; }}
@@ -100,7 +169,7 @@ QListWidget::item:selected {{ background: {c['selected']}; color: {c['text']}; }
 QListWidget::item:hover {{ background: {c['hover']}; }}
 #Card {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 14px; }}
 #Card:hover {{ border: 1px solid {c['accent']}; }}
-#CardTitle {{ font-family: {SERIF}; font-size: 16px; }}
+#CardTitle {{ font-family: {c['serif']}; font-size: 16px; }}
 #Box {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 14px; }}
 #ReplayOn {{ background: {c['card']}; border: 1px solid {c['accent']}; border-radius: 14px; }}
 #CollapseBtn {{ font-size: 16px; color: {c['muted']}; padding: 0 6px; }}
@@ -110,12 +179,12 @@ QSlider::sub-page:horizontal {{ background: {c['accent']}; border-radius: 2px; }
 QSlider::handle:horizontal {{ background: {c['card']}; border: 2px solid {c['accent']}; width: 12px; height: 12px;
     margin: -6px 0; border-radius: 8px; }}
 #Splash {{ background: {c['bg']}; }}
-#SplashLogo {{ color: {c['accent']}; font-family: {SERIF}; font-style: italic; font-size: 120px; }}
-#SplashName {{ font-family: {SERIF}; font-size: 30px; }}
+#SplashLogo {{ color: {c['accent']}; font-family: {c['serif']}; font-style: italic; font-size: 120px; }}
+#SplashName {{ font-family: {c['serif']}; font-size: 30px; }}
 #Hero {{ border-radius: 18px; }}
-#HeroTitle {{ font-family: {SERIF}; font-size: 34px; color: #FFFFFF; }}
+#HeroTitle {{ font-family: {c['serif']}; font-size: 34px; color: #FFFFFF; }}
 #HeroMeta {{ color: rgba(255, 255, 255, 0.86); font-size: 13px; }}
-QPushButton#PlayBtn {{ background: {c['accent']}; color: #FFFFFF; border: none; border-radius: 10px;
+QPushButton#PlayBtn {{ background: {c['accent']}; color: {c['accent_text']}; border: none; border-radius: 10px;
     padding: 10px 30px; font-size: 16px; font-weight: 700; }}
 QPushButton#PlayBtn:hover {{ background: {c['accent_hover']}; }}
 QPushButton#PlayBtn:disabled {{ background: rgba(255, 255, 255, 0.4); }}
@@ -126,7 +195,7 @@ QPushButton#MiniCard {{ background: {c['card']}; border: 1px solid {c['border']}
 QPushButton#MiniCard:hover {{ border: 1px solid {c['accent']}; }}
 #ProjectRow {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 14px; }}
 #ProjectRow:hover {{ border: 1px solid {c['accent']}; }}
-#ProjectTitle {{ font-family: {SERIF}; font-size: 18px; }}
+#ProjectTitle {{ font-family: {c['serif']}; font-size: 18px; }}
 #Tag {{ color: {c['muted']}; border: 1px solid {c['border']}; border-radius: 9px; padding: 1px 8px; font-size: 11px; }}
 #SourceTag {{ color: {c['muted']}; font-size: 11px; font-weight: 600; }}
 QPushButton#Chip {{ border-radius: 14px; padding: 4px 10px; }}
@@ -148,7 +217,7 @@ QTabWidget#DocTabs QTabBar::tab {{ background: transparent; color: {c['muted']};
 QTabWidget#DocTabs QTabBar::tab:selected {{ color: {c['text']}; border-bottom: 2px solid {c['accent']}; }}
 #Tile {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 12px; }}
 #Tile:hover {{ border: 1px solid {c['accent']}; }}
-#H3 {{ font-family: {SERIF}; font-size: 16px; }}
+#H3 {{ font-family: {c['serif']}; font-size: 16px; }}
 #Badge {{ color: {c['accent_text']}; background: {c['accent']}; border-radius: 8px; padding: 1px 8px; font-size: 11px; }}
 #BoardBar {{ background: rgba(20, 20, 19, 0.28); }}
 #BoardBar QLabel, #BoardBar QPushButton, #BoardBar QToolButton {{ color: #FFFFFF; }}
@@ -157,7 +226,7 @@ QTabWidget#DocTabs QTabBar::tab:selected {{ color: {c['text']}; border-bottom: 2
 #BoardBar QPushButton:checked {{ background: rgba(255, 255, 255, 0.92); color: #141413; }}
 #BoardBar QToolButton:hover {{ background: rgba(255, 255, 255, 0.22); }}
 #BoardBar QLineEdit {{ background: rgba(255, 255, 255, 0.92); color: #141413; border: none; }}
-#BoardName {{ font-family: {SERIF}; font-size: 20px; color: #FFFFFF; padding: 0 4px; }}
+#BoardName {{ font-family: {c['serif']}; font-size: 20px; color: #FFFFFF; padding: 0 4px; }}
 #ListCol {{ background: {c['list']}; border-radius: 12px; }}
 #ListTitle {{ font-weight: 600; font-size: 13px; color: {c['list_text']}; }}
 #ListCount {{ color: {c['muted']}; font-size: 11px; padding: 0 4px; }}
@@ -179,7 +248,7 @@ QTabWidget#DocTabs QTabBar::tab:selected {{ color: {c['text']}; border-bottom: 2
 #DangerBtn {{ text-align: left; background: {c['overdue']}; color: #FFFFFF; border: none; border-radius: 6px;
     padding: 6px 10px; }}
 #CardDialog, #CardBody {{ background: {c['bg']}; }}
-#CardTitleEdit {{ font-family: {SERIF}; font-size: 22px; background: transparent; border: 1px solid transparent; }}
+#CardTitleEdit {{ font-family: {c['serif']}; font-size: 22px; background: transparent; border: 1px solid transparent; }}
 #CardTitleEdit:focus {{ background: {c['input']}; border: 1px solid {c['accent']}; }}
 #DescPlaceholder {{ text-align: left; background: {c['panel']}; border: none; padding: 14px 12px; color: {c['muted']}; }}
 #DescView {{ padding: 2px; }}

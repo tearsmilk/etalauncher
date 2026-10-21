@@ -5,13 +5,13 @@ import random
 
 from .instances import MC_VERSIONS
 
-CATEGORIES = {
-    "adventure": "Приключения", "technology": "Техника", "magic": "Магия", "optimization": "Оптимизация",
-    "survival": "Выживание", "hardcore": "Хардкор", "lightweight": "Лёгкие", "multiplayer": "Мультиплеер",
-    "quests": "Квесты", "kitchen-sink": "Всего понемногу", "challenging": "Испытания", "exploration": "Исследование",
+CATEGORIES = {   # Modrinth's modpack categories
+    "adventure": "Приключения", "challenging": "Испытания", "combat": "Сражения", "kitchen-sink": "Всего понемногу",
+    "lightweight": "Лёгкие", "magic": "Магия", "multiplayer": "Мультиплеер", "optimization": "Оптимизация",
+    "quests": "Квесты", "technology": "Техника",
 }
 LOADER_TAGS = {"fabric": "Fabric", "forge": "Forge", "neoforge": "NeoForge", "quilt": "Quilt"}
-SOURCES = {"modrinth": "Modrinth", "curseforge": "CurseForge"}
+SOURCES = {"modrinth": "Modrinth", "curseforge": "CurseForge", "own": "Своя"}
 SORTS = {"relevance": "По релевантности", "downloads": "По скачиваниям", "follows": "По подписчикам",
          "newest": "Сначала новые", "updated": "Недавно обновлённые"}
 
@@ -19,11 +19,11 @@ _DEMO = [
     ("Чистый прирост", "optimum-plus", "lumen", "Только оптимизация: больше FPS, быстрее загрузка, ванильный геймплей.",
      ["optimization", "lightweight"], ["fabric", "quilt"], 38),
     ("Звёздный путь", "starpath", "orbita", "Космос, ракеты и терраформинг планет. Квестовая линия на 400 глав.",
-     ["technology", "quests", "exploration"], ["neoforge"], 212),
+     ["technology", "quests", "adventure"], ["neoforge"], 212),
     ("Тихая гавань", "quiet-harbor", "mira", "Уютное выживание: фермы, готовка, рыбалка и красивые деревни.",
-     ["survival", "lightweight"], ["fabric"], 96),
+     ["adventure", "lightweight"], ["fabric"], 96),
     ("Глубины", "the-depths", "korund", "Хардкорное подземелье: свет — ресурс, а пещеры живут своей жизнью.",
-     ["hardcore", "adventure", "challenging"], ["forge", "neoforge"], 154),
+     ["challenging", "adventure", "challenging"], ["forge", "neoforge"], 154),
     ("Мастерская", "workshop", "gearwright", "Шестерёнки, конвейеры и автоматизация без электричества.",
      ["technology", "quests"], ["forge", "fabric"], 187),
     ("Арканум", "arcanum", "nyx", "Школы магии, ритуалы и подземелья с боссами-волшебниками.",
@@ -35,19 +35,19 @@ _DEMO = [
     ("Средневековье", "medieval-age", "castellan", "Замки, рыцари, торговля и живые королевства.",
      ["adventure", "multiplayer"], ["forge"], 208),
     ("Север", "north", "fjord", "Суровая зима, температура, голод и выживание в тундре.",
-     ["survival", "hardcore"], ["fabric"], 118),
+     ["adventure", "challenging"], ["fabric"], 118),
     ("Кинолента", "cinematic", "lumen", "Шейдеры, физика, анимации — для красивых видео и скриншотов.",
      ["optimization", "lightweight"], ["fabric", "quilt"], 64),
     ("Острова", "islands", "archipel", "Генерация архипелагов, корабли и морские приключения.",
-     ["exploration", "adventure"], ["fabric", "neoforge"], 143),
+     ["adventure", "adventure"], ["fabric", "neoforge"], 143),
     ("Индустрия", "industria", "volt", "Энергосети, реакторы и огромные заводы для мультиплеера.",
      ["technology", "multiplayer"], ["neoforge"], 276),
     ("Сказки", "fairy-tales", "mira", "Лёгкая сборка с магией природы, питомцами и уютными биомами.",
      ["magic", "lightweight"], ["fabric"], 87),
     ("Испытание", "the-trial", "ironclad", "Каждый моб сильнее, ресурсы скуднее, а награды — дороже.",
-     ["challenging", "hardcore"], ["forge"], 99),
+     ["challenging", "challenging"], ["forge"], 99),
     ("Вечерний сервер", "evening-server", "atlas-team", "Готовая сборка для сервера с друзьями: голос, карты, приваты.",
-     ["multiplayer", "survival"], ["fabric", "neoforge"], 72),
+     ["multiplayer", "adventure"], ["fabric", "neoforge"], 72),
 ]
 
 
@@ -55,6 +55,7 @@ def _make_demo():
     rng = random.Random(7)
     out = []
     for i, (title, slug, author, desc, cats, loaders, mods) in enumerate(_DEMO):
+        cats = list(dict.fromkeys(cats))
         versions = sorted(rng.sample(MC_VERSIONS[:9], rng.randint(1, 3)), key=MC_VERSIONS.index)
         out.append({
             "project_id": f"demo{i:02d}", "slug": slug, "title": title, "author": author, "description": desc,
