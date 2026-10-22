@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
                                QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, LOGO, __version__, backgrounds, icons, launch, net, theme
+from . import APP_NAME, LOGO, __version__, backgrounds, discord_rpc, icons, launch, net, theme
 from .accounts import AccountStore, offline_uuid, validate
 from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, DemoProvider, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
@@ -686,8 +686,8 @@ def _modrinth_app_profiles_dir():
     return base if base.exists() else None
 
 
-class ManageModsDialog(QDialog):
-    """Manage mods, shaders, resource packs and datapacks in an existing instance."""
+class ModsPage(QWidget):
+    """Manage mods, shaders, resource packs and datapacks — shown as a full launcher page."""
 
     TABS = [
         ("Моды", ".minecraft/mods", (".jar", ".zip")),
@@ -703,25 +703,37 @@ class ManageModsDialog(QDialog):
         "Датапаки": "datapack",
     }
 
-    def __init__(self, win, inst):
-        super().__init__(win)
+    def __init__(self, win):
+        super().__init__()
         self.win = win
-        self.inst = inst
-        self.setWindowTitle(f"Содержимое — {inst['name']}")
-        self.resize(600, 480)
+        self.inst = None
+        self.setObjectName("Page")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 14)
-        lay.addWidget(label(f"Сборка: {inst['name']}", "H2"))
-        self.tabs = QTabWidget()
+        lay.setContentsMargins(32, 20, 32, 20)
+        lay.setSpacing(12)
+        head = QHBoxLayout()
+        back = QPushButton("← Назад")
+        back.clicked.connect(self._go_back)
+        head.addWidget(back, 0, Qt.AlignLeft)
+        head.addStretch(1)
+        lay.addLayout(head)
+        self.title_lbl = label("", "Title")
+        lay.addWidget(self.title_lbl)
+        self.tabs_widget = QTabWidget()
+        self.tabs_widget.setObjectName("DocTabs")
+        lay.addWidget(self.tabs_widget, 1)
+
+    def _go_back(self):
+        self.win.modpacks.show_tab("mine")
+        self.win.pages.setCurrentWidget(self.win.modpacks)
+
+    def set_instance(self, inst):
+        self.inst = inst
+        self.title_lbl.setText(f"Содержимое — {inst['name']}")
+        self.tabs_widget.clear()
         for tab_name, subdir, exts in self.TABS:
-            self.tabs.addTab(self._make_tab(tab_name, subdir, exts), tab_name)
-        lay.addWidget(self.tabs, 1)
-        close = QPushButton("Закрыть")
-        close.clicked.connect(self.accept)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        row.addWidget(close)
-        lay.addLayout(row)
+            w, _ = self._make_tab(tab_name, subdir, exts)
+            self.tabs_widget.addTab(w, tab_name)
 
     def _inst_dir(self):
         return self.win.settings.game_dir() / "instances" / self.inst["id"]
@@ -735,24 +747,19 @@ class ManageModsDialog(QDialog):
         scroll.setFrameShape(QFrame.NoFrame)
         inner = QWidget()
         inner.setObjectName("Page")
-        self._list_lay = getattr(self, "_lists", None)
         list_lay = QVBoxLayout(inner)
         list_lay.setContentsMargins(0, 0, 0, 0)
         list_lay.setSpacing(4)
         scroll.setWidget(inner)
         v.addWidget(scroll, 1)
-        add_btn = QPushButton(f"  Добавить из Modrinth…")
+        add_btn = QPushButton("  Добавить из Modrinth…")
         add_btn.setObjectName("Accent")
         add_btn.setIcon(icons.icon("plus", "#FFFFFF", "#FFFFFF"))
         ptype = self.MODRINTH_TYPES.get(tab_name, "mod")
         add_btn.clicked.connect(lambda: self._open_add_dialog(ptype, subdir, exts, list_lay))
         v.addWidget(add_btn)
         self._fill_list(list_lay, subdir, exts)
-        # store reference to reload later
-        w._list_lay = list_lay
-        w._subdir = subdir
-        w._exts = exts
-        return w
+        return w, list_lay
 
     def _fill_list(self, lay, subdir, exts):
         clear_layout(lay)
@@ -1174,7 +1181,7 @@ class InstanceCard(QFrame):
         m.addAction(ic("play"), "Играть", lambda: w.launch(self.inst))
         m.addAction(ic("folder"), "Открыть папку", lambda: w.open_instance_folder(self.inst))
         m.addSeparator()
-        m.addAction(ic("desc"), "Управление содержимым…", lambda: ManageModsDialog(w, self.inst).exec())
+        m.addAction(ic("desc"), "Управление содержимым…", lambda: w.manage_mods(self.inst))
         m.addAction(ic("image"), "Сменить иконку…", lambda: w.set_instance_icon(self.inst))
         m.addSeparator()
         m.addAction(ic("desc"), "Переименовать…", lambda: w.rename_instance(self.inst))
@@ -1208,10 +1215,9 @@ class ModpacksPage(QWidget):
             head.addWidget(b)
             self.tab_btns[k] = b
         head.addStretch(1)
-        if _modrinth_app_profiles_dir():
-            imp = QPushButton("Импорт из Modrinth App…")
-            imp.clicked.connect(lambda: ImportModrinthAppDialog(win).exec())
-            head.addWidget(imp)
+        imp = QPushButton("Импорт из Modrinth App…")
+        imp.clicked.connect(lambda: ImportModrinthAppDialog(win).exec())
+        head.addWidget(imp)
         new = QPushButton("Создать сборку")
         new.setObjectName("Accent")
         new.setIcon(icons.icon("plus", "#FFFFFF", "#FFFFFF"))
@@ -2142,6 +2148,7 @@ class LaunchDialog(QDialog):
         self.phase = "running"
         self.win.games[self.inst["id"]] = self.game
         self.win.instances.update(self.inst["id"], last_played=time.time())
+        discord_rpc.update(details=self.inst["name"], state="Играет", start_ts=int(time.time()))
         self.win.refresh()
         self.bar.setValue(100)
         self.stage.setText("Игра запущена")
@@ -2156,6 +2163,7 @@ class LaunchDialog(QDialog):
     def _exited(self, code):
         self.phase = "done"
         self.win.games.pop(self.inst["id"], None)
+        discord_rpc.clear()
         minutes = int((time.time() - self.game.started) // 60) if self.game else 0
         cur = self.win.instances.get(self.inst["id"]) or {}
         self.win.instances.update(self.inst["id"], playtime_min=int(cur.get("playtime_min") or 0) + minutes,
@@ -2302,8 +2310,10 @@ class MainWindow(QMainWindow):
         self.modpacks = ModpacksPage(self)
         self.accounts_page = AccountsPage(self)
         self.settings_page = SettingsPage(self)
-        for p in (self.home, self.modpacks, self.accounts_page, self.settings_page):
+        self._mods_page = ModsPage(self)
+        for p in (self.home, self.modpacks, self.accounts_page, self.settings_page, self._mods_page):
             self.pages.addWidget(p)
+        discord_rpc.start()
         self.place_side()
         self.build_side()
         for keys, fn in (("Ctrl+1", lambda: self.go("home")), ("Ctrl+2", lambda: self.go("modpacks")),
@@ -2581,6 +2591,10 @@ class MainWindow(QMainWindow):
             self.settings.save()
         self.refresh()
 
+    def manage_mods(self, inst):
+        self._mods_page.set_instance(inst)
+        self.pages.setCurrentWidget(self._mods_page)
+
     def open_instance_folder(self, inst):
         path = self.settings.game_dir() / "instances" / inst["id"]
         path.mkdir(parents=True, exist_ok=True)
@@ -2622,6 +2636,10 @@ class MainWindow(QMainWindow):
         self.launches[inst["id"]] = dlg
         dlg.show()
         return dlg
+
+    def closeEvent(self, event):
+        discord_rpc.stop()
+        super().closeEvent(event)
 
 
 def main():
