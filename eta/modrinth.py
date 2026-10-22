@@ -114,6 +114,46 @@ class ModrinthProvider:
         return out
 
 
+# ---- standalone content search (mods, shaders, resourcepacks, datapacks)
+
+def search_content(query="", project_type="mod", loaders=(), version="", offset=0, limit=20):
+    """Search Modrinth for a single content type (not modpacks)."""
+    facets = [[f"project_type:{project_type}"]]
+    if loaders:
+        facets.append([f"categories:{lo}" for lo in loaders])
+    if version:
+        facets.append([f"versions:{version}"])
+    params = {"query": query or "", "facets": json.dumps(facets), "index": "relevance",
+              "offset": int(offset), "limit": int(limit)}
+    data = net.get_json(f"{API}/search", params=params)
+    return [normalize(h) for h in data.get("hits", [])]
+
+
+def content_versions(slug, loader="", version=""):
+    """Return versions for a mod/shader/etc, filtered by loader and game version."""
+    params = {}
+    if loader and loader != "vanilla":
+        params["loaders"] = json.dumps([loader])
+    if version:
+        params["game_versions"] = json.dumps([version])
+    vs = net.get_json(f"{API}/project/{slug}/version", params=params) or []
+    out = []
+    for v in vs[:60]:
+        files = v.get("files") or []
+        primary = next((f for f in files if f.get("primary")), files[0] if files else None)
+        if not primary:
+            continue
+        gv = v.get("game_versions") or [""]
+        lo = v.get("loaders") or [""]
+        out.append({"name": v.get("version_number", ""),
+                    "file": {"url": primary["url"],
+                             "sha1": (primary.get("hashes") or {}).get("sha1", ""),
+                             "filename": primary.get("filename", "")},
+                    "mc": gv[0] if gv else "", "loader": lo[0] if lo else "",
+                    "type": v.get("version_type", "release")})
+    return out
+
+
 # ---- .mrpack installation
 
 class InstallError(Exception):

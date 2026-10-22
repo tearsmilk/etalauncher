@@ -87,8 +87,14 @@ def rounded(pix, size, radius=None):
     return out
 
 
-def set_icon(win, lbl, url, seed, size):
-    """Block icon now, the real project icon (Modrinth) when it arrives."""
+def set_icon(win, lbl, url, seed, size, icon_path=None):
+    """Block icon now, the real project icon (Modrinth) when it arrives. icon_path overrides all."""
+    from PySide6.QtGui import QPixmap
+    if icon_path and Path(icon_path).exists():
+        pix = QPixmap(icon_path)
+        if not pix.isNull():
+            lbl.setPixmap(rounded(pix, size))
+            return
     lbl.setPixmap(block_icon(seed or "?", size))
     if url and getattr(win, "icons", None) is not None:
         def done(pix, lbl=lbl):
@@ -218,7 +224,7 @@ class Hero(QFrame):
         if inst:
             self.title.setText(inst["name"])
             self.meta.setText(describe(inst))
-            set_icon(self.win, self.icon, inst.get("icon_url"), inst["icon"], 76)
+            set_icon(self.win, self.icon, inst.get("icon_url"), inst["icon"], 76, icon_path=inst.get("icon_path"))
             running = inst["id"] in self.win.games
             self.play.setText("  Играет…" if running else "  Играть")
             self.play.setEnabled(not running)
@@ -668,9 +674,377 @@ class InstallDialog(QDialog):
             self.accept()
 
 
+def _modrinth_app_profiles_dir():
+    """Return the Modrinth App profiles path for the current OS, or None if not found."""
+    import os
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support" / "com.modrinth.theseus" / "profiles"
+    elif sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home())) / "com.modrinth.theseus" / "profiles"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "com.modrinth.theseus" / "profiles"
+    return base if base.exists() else None
+
+
+class ManageModsDialog(QDialog):
+    """Manage mods, shaders, resource packs and datapacks in an existing instance."""
+
+    TABS = [
+        ("Моды", ".minecraft/mods", (".jar", ".zip")),
+        ("Шейдеры", ".minecraft/shaderpacks", (".zip",)),
+        ("Ресурс-паки", ".minecraft/resourcepacks", (".zip",)),
+        ("Датапаки", ".minecraft/datapacks", (".zip",)),
+    ]
+
+    MODRINTH_TYPES = {
+        "Моды": "mod",
+        "Шейдеры": "shader",
+        "Ресурс-паки": "resourcepack",
+        "Датапаки": "datapack",
+    }
+
+    def __init__(self, win, inst):
+        super().__init__(win)
+        self.win = win
+        self.inst = inst
+        self.setWindowTitle(f"Содержимое — {inst['name']}")
+        self.resize(600, 480)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.addWidget(label(f"Сборка: {inst['name']}", "H2"))
+        self.tabs = QTabWidget()
+        for tab_name, subdir, exts in self.TABS:
+            self.tabs.addTab(self._make_tab(tab_name, subdir, exts), tab_name)
+        lay.addWidget(self.tabs, 1)
+        close = QPushButton("Закрыть")
+        close.clicked.connect(self.accept)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(close)
+        lay.addLayout(row)
+
+    def _inst_dir(self):
+        return self.win.settings.game_dir() / "instances" / self.inst["id"]
+
+    def _make_tab(self, tab_name, subdir, exts):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 8, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner.setObjectName("Page")
+        self._list_lay = getattr(self, "_lists", None)
+        list_lay = QVBoxLayout(inner)
+        list_lay.setContentsMargins(0, 0, 0, 0)
+        list_lay.setSpacing(4)
+        scroll.setWidget(inner)
+        v.addWidget(scroll, 1)
+        add_btn = QPushButton(f"  Добавить из Modrinth…")
+        add_btn.setObjectName("Accent")
+        add_btn.setIcon(icons.icon("plus", "#FFFFFF", "#FFFFFF"))
+        ptype = self.MODRINTH_TYPES.get(tab_name, "mod")
+        add_btn.clicked.connect(lambda: self._open_add_dialog(ptype, subdir, exts, list_lay))
+        v.addWidget(add_btn)
+        self._fill_list(list_lay, subdir, exts)
+        # store reference to reload later
+        w._list_lay = list_lay
+        w._subdir = subdir
+        w._exts = exts
+        return w
+
+    def _fill_list(self, lay, subdir, exts):
+        clear_layout(lay)
+        folder = self._inst_dir() / subdir
+        folder.mkdir(parents=True, exist_ok=True)
+        files = sorted(folder.iterdir(), key=lambda p: p.name.lower()) if folder.exists() else []
+        enabled_exts = set(exts)
+        disabled_exts = {e + ".disabled" for e in enabled_exts}
+        shown = [f for f in files if any(f.name.endswith(e) for e in enabled_exts | disabled_exts)]
+        if not shown:
+            lay.addWidget(label("Нет файлов.", "Hint"))
+            return
+        for fp in shown:
+            is_disabled = fp.name.endswith(".disabled")
+            row = QHBoxLayout()
+            name_lbl = label(fp.name, wrap=False)
+            name_lbl.setToolTip(str(fp))
+            row.addWidget(name_lbl, 1)
+            tog = QPushButton("Включить" if is_disabled else "Выключить")
+            def make_toggle(fp_=fp, is_dis=is_disabled, lay_=lay, sub=subdir, ex=exts):
+                def do():
+                    if is_dis:
+                        new = fp_.with_suffix("") if fp_.suffix == ".disabled" else fp_
+                    else:
+                        new = fp_.with_suffix(fp_.suffix + ".disabled")
+                    try:
+                        fp_.rename(new)
+                    except OSError:
+                        pass
+                    self._fill_list(lay_, sub, ex)
+                return do
+            tog.clicked.connect(make_toggle())
+            row.addWidget(tog)
+            rem = QPushButton("Удалить")
+            def make_remove(fp_=fp, lay_=lay, sub=subdir, ex=exts):
+                def do():
+                    try:
+                        fp_.unlink()
+                    except OSError:
+                        pass
+                    self._fill_list(lay_, sub, ex)
+                return do
+            rem.clicked.connect(make_remove())
+            row.addWidget(rem)
+            frame = QFrame()
+            frame.setLayout(row)
+            lay.addWidget(frame)
+        lay.addStretch(1)
+
+    def _open_add_dialog(self, ptype, subdir, exts, list_lay):
+        dest_dir = self._inst_dir() / subdir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dlg = ModAddDialog(self.win, self.inst, ptype, dest_dir)
+        dlg.exec()
+        self._fill_list(list_lay, subdir, exts)
+
+
+class ModAddDialog(QDialog):
+    """Search Modrinth for a content type and download into an instance folder."""
+
+    def __init__(self, win, inst, project_type, dest_dir):
+        super().__init__(win)
+        self.win = win
+        self.inst = inst
+        self.project_type = project_type
+        self.dest_dir = Path(dest_dir)
+        type_names = {"mod": "Моды", "shader": "Шейдеры", "resourcepack": "Ресурс-паки", "datapack": "Датапаки"}
+        self.setWindowTitle(f"Добавить из Modrinth — {type_names.get(project_type, project_type)}")
+        self.resize(520, 500)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 14)
+        search_row = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Поиск…")
+        self.search.setClearButtonEnabled(True)
+        self.search.returnPressed.connect(self._search)
+        search_row.addWidget(self.search, 1)
+        go = QPushButton("Найти")
+        go.setObjectName("Accent")
+        go.clicked.connect(self._search)
+        search_row.addWidget(go)
+        lay.addLayout(search_row)
+        self.status = label("", "Hint")
+        lay.addWidget(self.status)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner.setObjectName("Page")
+        self.results_lay = QVBoxLayout(inner)
+        self.results_lay.setContentsMargins(0, 0, 0, 0)
+        self.results_lay.setSpacing(6)
+        scroll.setWidget(inner)
+        lay.addWidget(scroll, 1)
+        close = QPushButton("Закрыть")
+        close.clicked.connect(self.accept)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(close)
+        lay.addLayout(row)
+
+    def _search(self):
+        q = self.search.text().strip()
+        self.status.setText("Ищем…")
+        mc = self.inst.get("mc_version", "")
+        loader = self.inst.get("loader", "")
+
+        def job():
+            from .modrinth import search_content
+            return search_content(q, self.project_type, loaders=[loader] if loader and loader != "vanilla" else (),
+                                  version=mc, limit=20)
+
+        def done(hits):
+            clear_layout(self.results_lay)
+            self.status.setText(f"Найдено: {len(hits)}" if hits else "Ничего не найдено.")
+            for h in hits:
+                self.results_lay.addWidget(self._result_row(h))
+            self.results_lay.addStretch(1)
+
+        def failed(e):
+            self.status.setText(f"Ошибка: {e}")
+
+        self.win.runner.run(job, done, failed)
+
+    def _result_row(self, h):
+        frame = QFrame()
+        frame.setObjectName("Box")
+        row = QHBoxLayout(frame)
+        row.setContentsMargins(10, 8, 10, 8)
+        icon_lbl = QLabel()
+        set_icon(self.win, icon_lbl, h.get("icon_url"), h["title"], 36)
+        row.addWidget(icon_lbl)
+        col = QVBoxLayout()
+        col.addWidget(label(h["title"], "H3"))
+        meta = f"{h['author']} · {h.get('downloads', 0):,} скачиваний"
+        col.addWidget(label(meta, "Hint"))
+        row.addLayout(col, 1)
+        dl = QPushButton("Скачать")
+        dl.clicked.connect(lambda: self._download(h, dl))
+        row.addWidget(dl)
+        return frame
+
+    def _download(self, h, btn):
+        btn.setEnabled(False)
+        btn.setText("…")
+        mc = self.inst.get("mc_version", "")
+        loader = self.inst.get("loader", "")
+        dest_dir = self.dest_dir
+        slug = h["slug"]
+
+        def job():
+            from .modrinth import content_versions
+            vs = content_versions(slug, loader if loader != "vanilla" else "", mc)
+            if not vs:
+                raise Exception("Нет подходящей версии")
+            v = vs[0]
+            fn = v["file"]["filename"]
+            dest = dest_dir / fn
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            net.download(v["file"]["url"], dest)
+            return fn
+
+        def done(fn):
+            btn.setText("✓")
+            btn.setEnabled(True)
+
+        def failed(e):
+            btn.setText("Ошибка")
+            btn.setToolTip(str(e))
+            btn.setEnabled(True)
+
+        self.win.runner.run(job, done, failed)
+
+
+class ImportModrinthAppDialog(QDialog):
+    """Import instances from the Modrinth App (Theseus)."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.setWindowTitle("Импорт из Modrinth App")
+        self.resize(500, 400)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.addWidget(label("Импорт сборок из Modrinth App", "H2"))
+        self.profiles_dir = _modrinth_app_profiles_dir()
+        self.checks = {}
+        self.profiles = {}
+        if not self.profiles_dir:
+            lay.addWidget(label("Modrinth App не найден на этом компьютере.", "Muted"))
+        else:
+            lay.addWidget(label(f"Найдены сборки в: {self.profiles_dir}", "Hint", wrap=True))
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            inner = QWidget()
+            inner.setObjectName("Page")
+            inner_lay = QVBoxLayout(inner)
+            inner_lay.setContentsMargins(0, 0, 0, 0)
+            for profile_dir in sorted(self.profiles_dir.iterdir()):
+                pjson = profile_dir / "profile.json"
+                if not pjson.exists():
+                    continue
+                try:
+                    import json as _json
+                    data = _json.loads(pjson.read_text("utf-8"))
+                except Exception:
+                    continue
+                name = data.get("name") or profile_dir.name
+                gv = data.get("game_version") or ""
+                loader_info = data.get("loader") or {}
+                loader = loader_info.get("type") or "vanilla"
+                cb = QCheckBox(f"{name}  [{loader} {gv}]")
+                inner_lay.addWidget(cb)
+                self.checks[profile_dir.name] = cb
+                self.profiles[profile_dir.name] = (profile_dir, data, name, gv, loader)
+            inner_lay.addStretch(1)
+            scroll.setWidget(inner)
+            lay.addWidget(scroll, 1)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(6)
+        self.bar.hide()
+        lay.addWidget(self.bar)
+        self.status = label("", "Hint")
+        lay.addWidget(self.status)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        cancel = QPushButton("Отмена")
+        cancel.clicked.connect(self.reject)
+        row.addWidget(cancel)
+        self.ok_btn = QPushButton("Импортировать")
+        self.ok_btn.setObjectName("Accent")
+        self.ok_btn.clicked.connect(self._import)
+        self.ok_btn.setEnabled(bool(self.profiles_dir and self.checks))
+        row.addWidget(self.ok_btn)
+        lay.addLayout(row)
+
+    def _import(self):
+        selected = [k for k, cb in self.checks.items() if cb.isChecked()]
+        if not selected:
+            self.status.setText("Выберите хотя бы одну сборку.")
+            return
+        self.ok_btn.setEnabled(False)
+        self.bar.setRange(0, len(selected))
+        self.bar.setValue(0)
+        self.bar.show()
+        game_dir = self.win.settings.game_dir()
+
+        def job():
+            from .instances import new_id
+            imported = []
+            for i, key in enumerate(selected):
+                prof_dir, data, name, gv, loader = self.profiles[key]
+                iid = new_id()
+                dest = game_dir / "instances" / iid
+                shutil.copytree(str(prof_dir), str(dest))
+                imported.append((iid, name, gv, loader))
+                yield i + 1, len(selected)
+            return imported
+
+        results = []
+        total = len(selected)
+
+        def _run_import():
+            try:
+                gen = job()
+                while True:
+                    try:
+                        done_n, tot = next(gen)
+                        self.bar.setValue(done_n)
+                        self.status.setText(f"Копируем {done_n} из {tot}…")
+                    except StopIteration as e:
+                        results.extend(e.value)
+                        break
+                for iid, name, gv, loader in results:
+                    self.win.instances.add(name, gv, loader, source="own", iid=iid)
+                self.win.refresh()
+                self.win.modpacks.show_tab("mine")
+                self.accept()
+            except Exception as exc:
+                self.status.setText(f"Ошибка: {exc}")
+                self.ok_btn.setEnabled(True)
+
+        threading.Thread(target=_run_import, daemon=True).start()
+
+
 class CreateInstanceDialog(QDialog):
     def __init__(self, win):
         super().__init__(win)
+        self.win = win
+        self.icon_path = None
         self.setWindowTitle("Новая сборка")
         self.setFixedWidth(440)
         lay = QVBoxLayout(self)
@@ -685,6 +1059,13 @@ class CreateInstanceDialog(QDialog):
         self.name.setPlaceholderText("Например, «Выживание с друзьями»")
         self.name.textChanged.connect(self._icon)
         col.addWidget(self.name)
+        pick_row = QHBoxLayout()
+        self.icon_hint = label("", "Hint")
+        pick_row.addWidget(self.icon_hint, 1)
+        pick_btn = QPushButton("Выбрать…")
+        pick_btn.clicked.connect(self._pick_icon)
+        pick_row.addWidget(pick_btn)
+        col.addLayout(pick_row)
         head.addLayout(col, 1)
         lay.addLayout(head)
         lay.addWidget(label("Версия игры"))
@@ -721,8 +1102,19 @@ class CreateInstanceDialog(QDialog):
         lay.addLayout(row)
         self._icon()
 
+    def _pick_icon(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Выбрать иконку", "", "Изображения (*.png *.jpg *.jpeg *.webp)")
+        if path:
+            self.icon_path = path
+            self.icon_hint.setText(Path(path).name)
+            from PySide6.QtGui import QPixmap
+            pix = QPixmap(path)
+            if not pix.isNull():
+                self.icon.setPixmap(rounded(pix, 56))
+
     def _icon(self):
-        self.icon.setPixmap(block_icon(self.name.text().strip() or "Новая сборка", 56))
+        if not self.icon_path:
+            self.icon.setPixmap(block_icon(self.name.text().strip() or "Новая сборка", 56))
 
     def _ok(self):
         if not self.name.text().strip():
@@ -742,7 +1134,7 @@ class InstanceCard(QFrame):
         v.setContentsMargins(14, 14, 14, 12)
         top = QHBoxLayout()
         i = QLabel()
-        set_icon(win, i, inst.get("icon_url"), inst["icon"], 56)
+        set_icon(win, i, inst.get("icon_url"), inst["icon"], 56, icon_path=inst.get("icon_path"))
         top.addWidget(i)
         top.addStretch(1)
         more = QToolButton()
@@ -781,10 +1173,14 @@ class InstanceCard(QFrame):
         m = QMenu(self)
         m.addAction(ic("play"), "Играть", lambda: w.launch(self.inst))
         m.addAction(ic("folder"), "Открыть папку", lambda: w.open_instance_folder(self.inst))
+        m.addSeparator()
+        m.addAction(ic("desc"), "Управление содержимым…", lambda: ManageModsDialog(w, self.inst).exec())
+        m.addAction(ic("image"), "Сменить иконку…", lambda: w.set_instance_icon(self.inst))
+        m.addSeparator()
         m.addAction(ic("desc"), "Переименовать…", lambda: w.rename_instance(self.inst))
         m.addAction(ic("copy"), "Копировать", lambda: w.copy_instance(self.inst))
         m.addSeparator()
-        m.addAction(ic("trash"), "Удалить", lambda: w.delete_instance(self.inst))
+        m.addAction(ic("trash"), "Удалить…", lambda: w.delete_instance(self.inst))
         m.exec(pos)
 
 
@@ -812,6 +1208,10 @@ class ModpacksPage(QWidget):
             head.addWidget(b)
             self.tab_btns[k] = b
         head.addStretch(1)
+        if _modrinth_app_profiles_dir():
+            imp = QPushButton("Импорт из Modrinth App…")
+            imp.clicked.connect(lambda: ImportModrinthAppDialog(win).exec())
+            head.addWidget(imp)
         new = QPushButton("Создать сборку")
         new.setObjectName("Accent")
         new.setIcon(icons.icon("plus", "#FFFFFF", "#FFFFFF"))
@@ -2109,11 +2509,39 @@ class MainWindow(QMainWindow):
         dlg = CreateInstanceDialog(self)
         if dlg.exec():
             name = dlg.name.text().strip()
-            inst = self.instances.add(name, dlg.version.currentData(), dlg.loader, icon=name)
+            from .instances import new_id
+            iid = new_id()
+            saved_icon_path = None
+            if dlg.icon_path:
+                saved_icon_path = self._save_instance_icon(iid, dlg.icon_path)
+            inst = self.instances.add(name, dlg.version.currentData(), dlg.loader, icon=name, iid=iid,
+                                      icon_path=saved_icon_path or "")
             self.select_instance(inst["id"], go_home=False)
             return inst
         self.home.hero.set_instance(self.instance())
         return None
+
+    def _save_instance_icon(self, iid, src_path):
+        """Copy & scale src_path to data_dir/icons/<iid>.png, return the dest path string."""
+        from PySide6.QtGui import QImage
+        icons_dir = data_dir() / "icons"
+        icons_dir.mkdir(parents=True, exist_ok=True)
+        dest = icons_dir / f"{iid}.png"
+        img = QImage(src_path)
+        if img.isNull():
+            return None
+        img = img.scaled(128, 128, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        img.save(str(dest), "PNG")
+        return str(dest)
+
+    def set_instance_icon(self, inst):
+        path, _ = QFileDialog.getOpenFileName(self, "Выбрать иконку", "", "Изображения (*.png *.jpg *.jpeg *.webp)")
+        if not path:
+            return
+        saved = self._save_instance_icon(inst["id"], path)
+        if saved:
+            self.instances.update(inst["id"], icon_path=saved)
+            self.refresh()
 
     def rename_instance(self, inst):
         name, ok = QInputDialog.getText(self, "Сборка", "Название:", text=inst["name"])
@@ -2127,8 +2555,26 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def delete_instance(self, inst):
-        if QMessageBox.question(self, "Удалить сборку", f"Удалить «{inst['name']}»?") != QMessageBox.Yes:
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("Удалить сборку")
+        dlg.setText(f"Удалить сборку «{inst['name']}» и её папку на диске?\nЭто действие необратимо.")
+        dlg.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
+        dlg.setDefaultButton(QMessageBox.Cancel)
+        dlg.button(QMessageBox.Cancel).setText("Отмена")
+        dlg.button(QMessageBox.Yes).setText("Удалить")
+        if dlg.exec() != QMessageBox.Yes:
             return
+        inst_path = self.settings.game_dir() / "instances" / inst["id"]
+        if inst_path.exists():
+            try:
+                if IS_MAC:
+                    subprocess.run(["osascript", "-e",
+                                    f'tell application "Finder" to delete POSIX file "{inst_path}"'],
+                                   check=False, capture_output=True)
+                else:
+                    shutil.rmtree(inst_path, ignore_errors=True)
+            except Exception:
+                shutil.rmtree(inst_path, ignore_errors=True)
         self.instances.remove(inst["id"])
         if self.settings.get("selected_instance") == inst["id"]:
             self.settings["selected_instance"] = ""
