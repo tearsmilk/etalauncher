@@ -13,7 +13,7 @@ import time
 
 from . import net
 
-CLIENT_ID = os.environ.get("ETA_MSA_CLIENT_ID") or ""
+CLIENT_ID = os.environ.get("ETA_MSA_CLIENT_ID") or "1394e0d6-eb81-4d98-b104-f68a33b4ad6b"
 SCOPE = "XboxLive.signin offline_access"
 DEVICE_CODE_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode"
 TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
