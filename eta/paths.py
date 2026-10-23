@@ -13,6 +13,8 @@ def data_dir() -> Path:
         base = Path(override)
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support" / APP_ID
+    elif sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")) / APP_ID
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_ID
     base.mkdir(parents=True, exist_ok=True)

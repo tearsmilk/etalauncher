@@ -1806,8 +1806,16 @@ def find_java():
             pass
     import os
 
+    exe = "java.exe" if sys.platform == "win32" else "java"
     if os.environ.get("JAVA_HOME"):
-        out.append(os.path.join(os.environ["JAVA_HOME"], "bin", "java"))
+        out.append(os.path.join(os.environ["JAVA_HOME"], "bin", exe))
+    if sys.platform == "win32":
+        import glob
+
+        for pf in {os.environ.get("ProgramFiles", r"C:\Program Files"),
+                   os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")}:
+            for vendor in ("Java", "Eclipse Adoptium", "Microsoft", "Zulu", "BellSoft", "Amazon Corretto"):
+                out += sorted(glob.glob(os.path.join(pf, vendor, "*", "bin", "java.exe")), reverse=True)
     w = shutil.which("java")
     if w:
         out.append(w)
@@ -2134,8 +2142,10 @@ class GameProcess(QObject):
 
     def start(self, cmd, cwd, env):
         self.started = time.time()
+        extra = ({"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32"
+                 else {"start_new_session": True})
         self.proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     stdin=subprocess.DEVNULL, text=True, errors="replace", start_new_session=True)
+                                     stdin=subprocess.DEVNULL, text=True, errors="replace", **extra)
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -2720,7 +2730,11 @@ class MainWindow(QMainWindow):
                                     f'tell application "Finder" to delete POSIX file "{inst_path}"'],
                                    check=False, capture_output=True)
                 else:
-                    shutil.rmtree(inst_path, ignore_errors=True)
+                    try:
+                        from send2trash import send2trash
+                        send2trash(str(inst_path))
+                    except Exception:
+                        shutil.rmtree(inst_path, ignore_errors=True)
             except Exception:
                 shutil.rmtree(inst_path, ignore_errors=True)
         self.instances.remove(inst["id"])

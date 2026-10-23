@@ -1,8 +1,17 @@
 # η Эта — Eta
 
 A Minecraft launcher in the Claude-like style of the other apps in this repo (ivory / charcoal, terracotta accent,
-serif headings, Russian UI). macOS 11+ Intel x64, built into a `.dmg` by `.github/workflows/eta-macos.yml`
-(self-test included).
+serif headings, Russian UI). macOS 11+ Intel x64, built into a `.dmg` by `.github/workflows/eta-macos.yml`, and
+Windows x64, built into a single `Eta.exe` by `.github/workflows/eta-windows.yml` (self-test included in both).
+
+## Windows
+
+Скачайте `Eta-<версия>-windows-x64.exe` из артефактов Actions («Эта — Eta (Windows x64 .exe)») или из релиза
+`eta-v*` и запустите — установка не нужна. Сборка не подписана: SmartScreen покажет «Система Windows защитила ваш
+компьютер» → «Подробнее» → «Выполнить в любом случае». Данные лаунчера лежат в `%APPDATA%\Eta`; удаление сборки
+отправляет её папку в корзину (`send2trash`). Локальная сборка: Python 3.11, `pip install -r requirements-build.txt`,
+`pwsh packaging/build_windows.ps1` → `dist/Eta.exe` (скрипт сам делает `.ico` и version info через Qt и прогоняет
+`Eta.exe --selftest`).
 
 **Stage 2 — Modrinth.** The catalog searches Modrinth live (API v2: facets for loader / game version / category,
 sort, paging, project page with versions); installing a modpack downloads its `.mrpack`, then every client file
@@ -58,7 +67,8 @@ NeoForge лаунчер докачивает мод с Modrinth в `mods/` (ма
 `eta/accounts.py` · `eta/instances.py` · `eta/catalog.py` (DemoProvider) · `eta/modrinth.py` (ModrinthProvider,
 `.mrpack` install) · `eta/net.py` (HTTPS via certifi, background runner, icon cache) · `eta/mcru.py` (mc-ru.org) · `eta/launch.py` (Minecraft, Java, loaders,
 command line) · `eta/backgrounds.py` · `eta/widgets.py` (pixel heads, block icons, banner) · `eta/ui.py`.
-Data lives in `~/Library/Application Support/Eta` (`settings.json`, `accounts.json`, `instances.json`).
+Data lives in `~/Library/Application Support/Eta` on macOS, `%APPDATA%\Eta` on Windows (`settings.json`,
+`accounts.json`, `instances.json`).
 
 ## Run
 

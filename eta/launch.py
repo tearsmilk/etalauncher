@@ -470,9 +470,10 @@ class Game:
         self._p("loader", 0, 0, f"Устанавливаем {tag}…")
         self.log(f"[eta] {java} -jar {jar.name} --installClient {self.root}")
         before = {p.name for p in (self.root / "versions").iterdir() if p.is_dir()}
+        hidden = {"creationflags": subprocess.CREATE_NO_WINDOW} if OS_NAME == "windows" else {}
         proc = subprocess.Popen([java, "-jar", str(jar), "--installClient", str(self.root)], cwd=str(self.root),
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                env=clean_env(), text=True, errors="replace")
+                                env=clean_env(), text=True, errors="replace", **hidden)
         tail = []
         for line in proc.stdout:
             line = line.rstrip()
