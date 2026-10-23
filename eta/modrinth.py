@@ -4,6 +4,7 @@
 Docs: https://docs.modrinth.com/api — search uses facets, e.g. [["project_type:modpack"],["categories:fabric"]]."""
 import hashlib
 import json
+import os
 import threading
 import time
 import zipfile
@@ -164,10 +165,14 @@ def _safe_join(root, rel):
     """root / rel, refusing absolute paths and '..' (an index or zip must not write outside the instance)."""
     rel = str(rel).replace("\\", "/")
     pp = PurePosixPath(rel)
-    if pp.is_absolute() or ".." in pp.parts or not pp.parts:
+    if pp.is_absolute() or ".." in pp.parts or not pp.parts or any(":" in p for p in pp.parts):
         raise InstallError(f"Недопустимый путь в сборке: {rel}")
-    out = (Path(root) / Path(*pp.parts)).resolve()
-    if Path(root).resolve() not in out.parents and out != Path(root).resolve():
+    # join onto the already-resolved root instead of resolving the result: on Windows the two resolve() calls can
+    # disagree about 8.3 short names (RUNNER~1) for paths that do not exist yet
+    root_r = Path(root).resolve()
+    out = root_r.joinpath(*pp.parts)
+    a, b = os.path.normcase(str(root_r)), os.path.normcase(str(out))
+    if os.path.commonpath([a, b]) != a:
         raise InstallError(f"Недопустимый путь в сборке: {rel}")
     return out
 
