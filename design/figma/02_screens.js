@@ -183,7 +183,7 @@ MODE = "Light";
   const s2 = al("HORIZONTAL", {name: "Tab mine", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); s2.appendChild(txt("Мои сборки")); hd.appendChild(s2); b.appendChild(hd);
   const row = al("HORIZONTAL", {name: "Body", gap: 18}); b.appendChild(row);
   const fl = al("VERTICAL", {name: "Filters", gap: 6}); fl.resize(230, 40); fl.counterAxisSizingMode = "FIXED";
-  fl.appendChild(txt("ИСТОЧНИК", {size: 10, style: "Semi Bold", color: "muted"})); fl.appendChild(txt("☑ Modrinth")); fl.appendChild(txt("☑ CurseForge"));
+  fl.appendChild(txt("ИСТОЧНИК", {size: 10, style: "Semi Bold", color: "muted"})); fl.appendChild(txt("◉ Modrinth")); fl.appendChild(txt("○ CurseForge  (нужен API-ключ)"));
   fl.appendChild(txt("ЗАГРУЗЧИК", {size: 10, style: "Semi Bold", color: "muted"}));
   const lc = al("HORIZONTAL", {name: "Loaders", gap: 4}); lc.layoutWrap = "WRAP"; lc.resize(230, 40); lc.primaryAxisSizingMode = "FIXED";
   for (const [t, on] of [["Fabric", true], ["Forge", false], ["NeoForge", false], ["Quilt", false]]) { const c = al("HORIZONTAL", {name: t, pad: [4, 10, 4, 10], radius: 14, fill: on ? "accent" : "card", stroke: on ? "accent" : "border"}); c.appendChild(txt(t, {color: on ? "on-accent" : "text"})); lc.appendChild(c); }

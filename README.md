@@ -16,8 +16,16 @@ Windows x64, built into a single `Eta.exe` by `.github/workflows/eta-windows.yml
 **Stage 2 — Modrinth.** The catalog searches Modrinth live (API v2: facets for loader / game version / category,
 sort, paging, project page with versions); installing a modpack downloads its `.mrpack`, then every client file
 from `modrinth.index.json` in parallel (https only, Modrinth/GitHub/GitLab hosts, sha1-checked, no paths outside the
-instance), then `overrides/` and `client-overrides/` into `<game folder>/instances/<id>/.minecraft`. CurseForge is
-still a demo provider.
+instance), then `overrides/` and `client-overrides/` into `<game folder>/instances/<id>/.minecraft`.
+
+**CurseForge** (`eta/curseforge.py`, Core API v1). Нужен бесплатный ключ: console.curseforge.com → API keys →
+«Настройки → Загрузки → API-ключ CurseForge» (или переменная `ETA_CURSEFORGE_KEY`); без ключа источник CurseForge в
+каталоге и в «Добавить из…» выключен. Поиск сборок по загрузчику / версии / категории / сортировке, страница
+проекта (описание приходит HTML), файлы; установка скачивает zip сборки, по `manifest.json` запрашивает файлы
+пачками (`POST /mods/files`), раскладывает их по папкам по типу проекта (моды, ресурс-паки, шейдеры), проверяет sha1,
+копирует `overrides/`. Файлы, авторы которых запретили скачивание через API, пропускаются, если они необязательные,
+иначе установка завершается ошибкой со ссылками — их кладут в `mods/` вручную. Моды, шейдеры, ресурс-паки и
+датапаки из CurseForge можно добавлять и в готовые сборки (переключатель Modrinth / CurseForge).
 
 **Stage 3 — the game runs.** «Играть» gets everything from Mojang the way the official launcher does (`eta/launch.py`):
 the version JSON, client jar, libraries (rules for macOS, natives extracted for old versions), assets (with the
@@ -28,8 +36,7 @@ running their installer headless (`--installClient`), or unpacking it for old Fo
 empty means the newest stable / recommended one. The command line fills every `${placeholder}` (offline account,
 `-XstartOnFirstThread` on macOS, memory, JVM args, window size, full screen); the game's output goes to a console
 in the launch dialog, play time is counted, a crash shows the end of the log. Checked on Linux with Mojang's Java
-17: vanilla, Fabric and Forge 1.20.1 and Forge 1.12.2 start up to window creation. Next: CurseForge, Microsoft
-sign-in.
+17: vanilla, Fabric and Forge 1.20.1 and Forge 1.12.2 start up to window creation.
 
 **Look.** Настройки → Оформление: theme, accent colour (presets or any colour), window background (painted scenes,
 gradients, your own picture), glass (translucent panels over the blurred background: density, blur, veil), serif /

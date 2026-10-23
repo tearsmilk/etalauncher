@@ -34,10 +34,12 @@ class NetError(Exception):
     pass
 
 
-def get_bytes(url, timeout=20, params=None):
+def get_bytes(url, timeout=20, params=None, headers=None):
     if params:
         url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json, */*"})
+    hdrs = {"User-Agent": USER_AGENT, "Accept": "application/json, */*"}
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
             return r.read()
@@ -45,17 +47,17 @@ def get_bytes(url, timeout=20, params=None):
         raise NetError(_explain(e)) from e
 
 
-def get_json(url, timeout=20, params=None):
-    return json.loads(get_bytes(url, timeout, params).decode("utf-8"))
+def get_json(url, timeout=20, params=None, headers=None):
+    return json.loads(get_bytes(url, timeout, params, headers).decode("utf-8"))
 
 
-def post_json(url, payload, timeout=20):
+def post_json(url, payload, timeout=20, headers=None):
     """POST JSON → parsed JSON (None for an empty 204). A 4xx/5xx with a JSON body raises NetError with the
     server's errorMessage (Yggdrasil style) so the user sees «Неверный пароль» instead of «HTTP Error 403»."""
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=body, method="POST",
-                                 headers={"User-Agent": USER_AGENT, "Accept": "application/json",
-                                          "Content-Type": "application/json"})
+    hdrs = {"User-Agent": USER_AGENT, "Accept": "application/json", "Content-Type": "application/json"}
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, data=body, method="POST", headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
             raw = r.read()
@@ -105,12 +107,14 @@ def post_form(url, data, timeout=20):
     return call_json("POST", url, form=data, timeout=timeout)
 
 
-def download(url, dest, timeout=60, progress=None, cancel=None, chunk=1 << 16):
+def download(url, dest, timeout=60, progress=None, cancel=None, chunk=1 << 16, headers=None):
     """Stream url → dest (via a .part file). progress(done_bytes, total_bytes); cancel() → True aborts."""
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    hdrs = {"User-Agent": USER_AGENT}
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r, open(tmp, "wb") as fh:
             total = int(r.headers.get("Content-Length") or 0)

@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
                                QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, LOGO, __version__, backgrounds, discord_rpc, icons, launch, mcru, msa, net, theme
+from . import APP_NAME, LOGO, __version__, backgrounds, curseforge, discord_rpc, icons, launch, mcru, msa, net, theme
 from .accounts import AccountStore, offline_uuid, validate
-from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, DemoProvider, fmt_count
+from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
 from .paths import Settings, data_dir, resource_path, system_memory_mb
 from .widgets import block_icon, paint_banner, pixel_head
@@ -511,7 +511,7 @@ class ProjectDialog(QDialog):
         tabs.setObjectName("DocTabs")
         self.desc = QTextBrowser()
         self.desc.setOpenExternalLinks(True)
-        self.desc.setMarkdown(p.get("body") or p.get("description") or "")
+        self._set_body(p)
         tabs.addTab(self.desc, "Описание")
         self.vers_host = QWidget()
         self.vl = QVBoxLayout(self.vers_host)
@@ -522,15 +522,22 @@ class ProjectDialog(QDialog):
         sc.setWidget(self.vers_host)
         tabs.addTab(sc, "Версии")
         lay.addWidget(tabs, 1)
-        if p["source"] != "modrinth":
-            lay.addWidget(label("Это пример: CurseForge подключим позже (нужен ключ API).", "Hint", wrap=True))
+        if getattr(provider, "name", "") == "demo":
+            lay.addWidget(label("Это пример: подключите CurseForge в настройках (нужен ключ API).", "Hint", wrap=True))
         win.runner.run(lambda: provider.project(slug), self._project, lambda e: None)
         win.runner.run(lambda: provider.versions(slug), self._versions,
                        lambda e: self._versions_error(e))
 
+    def _set_body(self, p):
+        body = p.get("body") or p.get("description") or ""
+        if p.get("body_html"):
+            self.desc.setHtml(body)
+        else:
+            self.desc.setMarkdown(body)
+
     def _project(self, p):
         if p and p.get("body"):
-            self.desc.setMarkdown(p["body"])
+            self._set_body(p)
 
     def _versions_error(self, e):
         clear_layout(self.vl)
@@ -572,7 +579,7 @@ class InstallDialog(QDialog):
         self.win = win
         self.provider = provider
         self.p = p
-        self.real = getattr(provider, "name", "") == "modrinth"
+        self.real = getattr(provider, "name", "") in ("modrinth", "curseforge")
         self.setWindowTitle("Установка сборки")
         self.setFixedWidth(470)
         lay = QVBoxLayout(self)
@@ -659,23 +666,24 @@ class InstallDialog(QDialog):
         iid = new_id()
         root = self.win.settings.game_dir() / "instances" / iid
         mc_dir = root / ".minecraft"
-        workers = int(self.win.settings.get("parallel_downloads", 6))
-        cache = root / "pack.mrpack"
+        settings = self.win.settings
+        workers = int(settings.get("parallel_downloads", 6))
+        source = self.provider.name
+        cache = root / ("pack.zip" if source == "curseforge" else "pack.mrpack")
 
         def job():
-            from . import net
-
             self.progress.changed.emit("pack", 0, 1)
             net.download(v["file"]["url"], cache, progress=lambda d, t: self.progress.changed.emit("pack", d, t or 1),
                          cancel=lambda: self.cancelled)
-            info = install_mrpack(cache, mc_dir, lambda st, d, t: self.progress.changed.emit(st, d, t),
-                                  lambda: self.cancelled, workers)
-            return info
+            report = lambda st, d, t: self.progress.changed.emit(st, d, t)   # noqa: E731
+            if source == "curseforge" or curseforge.is_curseforge_pack(cache):
+                return curseforge.install_pack(cache, mc_dir, report, lambda: self.cancelled, workers, settings)
+            return install_mrpack(cache, mc_dir, report, lambda: self.cancelled, workers)
 
         def done(info):
             self.running = False
             self.result_inst = self.win.instances.add(
-                self.name.text().strip() or self.p["title"], info["mc"] or v["mc"], info["loader"], "modrinth",
+                self.name.text().strip() or self.p["title"], info["mc"] or v["mc"], info["loader"], source,
                 self.p["slug"], info["mods"], self.p["title"], iid=iid, icon_url=self.p.get("icon_url", ""),
                 loader_version=info["loader_version"], pack_version=info["version"] or v["version"])
             self.accept()
@@ -894,10 +902,27 @@ class ModAddDialog(QDialog):
         self.project_type = project_type
         self.dest_dir = Path(dest_dir)
         type_names = {"mod": "Моды", "shader": "Шейдеры", "resourcepack": "Ресурс-паки", "datapack": "Датапаки"}
-        self.setWindowTitle(f"Добавить из Modrinth — {type_names.get(project_type, project_type)}")
+        self.setWindowTitle(f"Добавить — {type_names.get(project_type, project_type)}")
         self.resize(520, 500)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14)
+        self.source = "modrinth"
+        seg = QHBoxLayout()
+        seg.setSpacing(0)
+        self.src_btns = {}
+        for k, t in (("modrinth", "Modrinth"), ("curseforge", "CurseForge")):
+            b = QPushButton(t)
+            b.setObjectName("Seg")
+            b.setCheckable(True)
+            b.setChecked(k == "modrinth")
+            b.clicked.connect(lambda _=False, k_=k: self._set_source(k_))
+            seg.addWidget(b)
+            self.src_btns[k] = b
+        if not curseforge.available(win.settings):
+            self.src_btns["curseforge"].setEnabled(False)
+            self.src_btns["curseforge"].setToolTip("Нужен API-ключ CurseForge — Настройки → Загрузки")
+        seg.addStretch(1)
+        lay.addLayout(seg)
         search_row = QHBoxLayout()
         self.search = QLineEdit()
         self.search.setPlaceholderText("Поиск…")
@@ -928,16 +953,27 @@ class ModAddDialog(QDialog):
         row.addWidget(close)
         lay.addLayout(row)
 
+    def _set_source(self, key):
+        self.source = key
+        for k, b in self.src_btns.items():
+            b.setChecked(k == key)
+        self._search()
+
+    def _api(self):
+        from . import modrinth
+
+        return curseforge if self.source == "curseforge" else modrinth
+
     def _search(self):
         q = self.search.text().strip()
         self.status.setText("Ищем…")
         mc = self.inst.get("mc_version", "")
         loader = self.inst.get("loader", "")
+        api = self._api()
 
         def job():
-            from .modrinth import search_content
-            return search_content(q, self.project_type, loaders=[loader] if loader and loader != "vanilla" else (),
-                                  version=mc, limit=20)
+            return api.search_content(q, self.project_type, loaders=[loader] if loader and loader != "vanilla" else (),
+                                      version=mc, limit=20)
 
         def done(hits):
             clear_layout(self.results_lay)
@@ -976,10 +1012,10 @@ class ModAddDialog(QDialog):
         loader = self.inst.get("loader", "")
         dest_dir = self.dest_dir
         slug = h["slug"]
+        api = self._api()
 
         def job():
-            from .modrinth import content_versions
-            vs = content_versions(slug, loader if loader != "vanilla" else "", mc)
+            vs = api.content_versions(slug, loader if loader != "vanilla" else "", mc)
             if not vs:
                 raise Exception("Нет подходящей версии")
             v = vs[0]
@@ -1319,15 +1355,14 @@ class ModpacksPage(QWidget):
         f.addWidget(label("ИСТОЧНИК", "Section"))
         self.f_sources = {}
         group = QButtonGroup(self)
-        for k, t in (("modrinth", "Modrinth"), ("curseforge", "CurseForge · примеры")):
+        for k, t in (("modrinth", "Modrinth"), ("curseforge", "CurseForge")):
             rb = QRadioButton(t)
             rb.setChecked(k == (self.win.settings.get("default_source") or "modrinth"))
             rb.toggled.connect(lambda on: on and self.research())
             group.addButton(rb)
             f.addWidget(rb)
             self.f_sources[k] = rb
-        if not any(rb.isChecked() for rb in self.f_sources.values()):
-            self.f_sources["modrinth"].setChecked(True)
+        self.update_sources()
         f.addSpacing(8)
         f.addWidget(label("ЗАГРУЗЧИК", "Section"))
         self.f_loaders = {}
@@ -1414,6 +1449,15 @@ class ModpacksPage(QWidget):
         self.win.settings["filters_hidden"] = not on
         self.win.settings.save()
 
+    def update_sources(self):
+        """CurseForge needs an API key: without one its radio is disabled and Modrinth is selected."""
+        cf = self.f_sources["curseforge"]
+        ok = curseforge.available(self.win.settings)
+        cf.setEnabled(ok)
+        cf.setToolTip("" if ok else "Нужен API-ключ CurseForge — Настройки → Загрузки → API-ключ CurseForge")
+        if (not ok and cf.isChecked()) or not any(rb.isChecked() for rb in self.f_sources.values()):
+            self.f_sources["modrinth"].setChecked(True)
+
     def source(self):
         return next((k for k, rb in self.f_sources.items() if rb.isChecked()), "modrinth")
 
@@ -1486,7 +1530,7 @@ class ModpacksPage(QWidget):
             row.install.connect(lambda slug, pr=prov: self.win.install_project(pr, slug))
             self.results.addWidget(row)
         shown = self.offset + len(hits)
-        src = "Modrinth" if prov.name == "modrinth" else "примеры CurseForge (API подключим позже)"
+        src = {"modrinth": "Modrinth", "curseforge": "CurseForge"}.get(prov.name, "примеры")
         self.count.setText(f"Найдено: {total} · {src}")
         if not total:
             st = label("Ничего не нашлось. Попробуйте убрать часть фильтров.", "Hint")
@@ -1509,16 +1553,13 @@ class ModpacksPage(QWidget):
                           f" border: 1px solid {theme.CURRENT['border']}; border-radius: 14px; }}")
         v = QVBoxLayout(box)
         v.setContentsMargins(18, 16, 18, 16)
-        v.addWidget(label("Modrinth не отвечает", "H3"))
+        v.addWidget(label(f"{SOURCES.get(self.source(), 'Каталог')} не отвечает", "H3"))
         v.addWidget(label(str(e), "Muted", wrap=True))
         row = QHBoxLayout()
         again = QPushButton("Повторить")
         again.setObjectName("Accent")
         again.clicked.connect(self.research)
         row.addWidget(again)
-        demo = QPushButton("Показать примеры")
-        demo.clicked.connect(lambda: self.f_sources["curseforge"].setChecked(True))
-        row.addWidget(demo)
         row.addStretch(1)
         v.addLayout(row)
         self.results.addWidget(box)
@@ -2186,6 +2227,29 @@ class SettingsPage(QScrollArea):
         src.setCurrentIndex(max(0, src.findData(s.get("default_source"))))
         src.currentIndexChanged.connect(lambda i: (s.update(default_source=src.itemData(i)), s.save()))
         row("Источник по умолчанию", src)
+        key = QLineEdit(s.get("curseforge_key") or "")
+        key.setPlaceholderText("console.curseforge.com → API keys")
+        key.setEchoMode(QLineEdit.Password)
+        key.setClearButtonEnabled(True)
+        key.setMinimumWidth(260)
+        show = QPushButton("Показать")
+        show.setCheckable(True)
+        show.toggled.connect(lambda on: (key.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password),
+                                         show.setText("Скрыть" if on else "Показать")))
+
+        def set_key(text):
+            s["curseforge_key"] = text.strip()
+            s.save()
+            self.win.modpacks.update_sources()
+
+        key.textChanged.connect(set_key)
+        key_row = QWidget()
+        kh = QHBoxLayout(key_row)
+        kh.setContentsMargins(0, 0, 0, 0)
+        kh.addWidget(key, 1)
+        kh.addWidget(show)
+        row("API-ключ CurseForge", key_row)
+        self.cf_key = key
         par = QSpinBox()
         par.setRange(1, 32)
         par.setValue(int(s.get("parallel_downloads", 6)))
@@ -2537,7 +2601,8 @@ class MainWindow(QMainWindow):
         self.instances = instances or InstanceStore()
         from .modrinth import ModrinthProvider
 
-        self.providers = {"modrinth": provider or ModrinthProvider(), "curseforge": DemoProvider()}
+        self.providers = {"modrinth": provider or ModrinthProvider(),
+                          "curseforge": curseforge.CurseForgeProvider(self.settings)}
         self.games = {}        # instance id → GameProcess while it runs
         self.launches = {}     # instance id → LaunchDialog (kept alive: it owns the process)
         self.provider = self.providers["modrinth"]

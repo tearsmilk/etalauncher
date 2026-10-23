@@ -46,6 +46,10 @@ def selftest():
     from tests.test_msa import run as msa_test
 
     report["msa"] = msa_test(tmp)["calls"]
+    # CurseForge: fake Core API + CDN — search, files, modpack zip install (blocked files, class folders)
+    from tests.test_curseforge import run as cf_test
+
+    report["curseforge"] = cf_test(tmp)["calls"]
     from eta import theme
     from eta.modrinth import normalize
 
