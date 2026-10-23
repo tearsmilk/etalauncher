@@ -24,7 +24,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import __version__, mcru, msa, net
+from . import __version__, mcru, msa, net, sysmods
 from .modrinth import InstallError, content_versions
 from .paths import data_dir
 
@@ -709,6 +709,10 @@ class Game:
         elif acc.get("type") == "msa":
             self._p("auth", 0, 0, "Вход Microsoft…")
             out["account"] = msa.ensure_session(acc)
+            self._check()
+        if loader in self.MOD_LOADERS:
+            self._p("auth", 0, 0, "Косметика rurukaSuka…")
+            sysmods.ensure_rurukasuka(self, inst, game_dir, settings, acc)
             self._check()
         self._p("launch", 0, 1, "Собираем команду запуска…")
         cmd = self.command(v, java, game_dir, acc, settings, natives_dir, cp, log_arg, inst, injector, server)

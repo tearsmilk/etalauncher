@@ -54,6 +54,10 @@ def selftest():
     from tests.test_servers import run as servers_test
 
     report["servers"] = servers_test(tmp)["calls"]
+    # system mod rurukaSuka: fake mc-ru.org release + fake Modrinth (Fabric API), tracker, toggles, GitHub fallback
+    from tests.test_sysmods import run as sysmods_test
+
+    report["sysmods"] = sysmods_test(tmp)["calls"]
     from eta import theme
     from eta.modrinth import normalize
 

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
 from . import (APP_NAME, LOGO, __version__, backgrounds, curseforge, discord_rpc, icons, launch, mcru, msa, net,
-               servers, theme, updates)
+               servers, sysmods, theme, updates)
 from .accounts import AccountStore, offline_uuid, validate
 from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
@@ -884,12 +884,21 @@ class ModsPage(QWidget):
         if not shown:
             lay.addWidget(label("Нет файлов.", "Hint"))
             return
+        managed = sysmods.managed_files(self._inst_dir() / ".minecraft") if subdir.endswith("/mods") else set()
         for fp in shown:
             is_disabled = fp.name.endswith(".disabled")
             row = QHBoxLayout()
             name_lbl = label(fp.name, wrap=False)
             name_lbl.setToolTip(str(fp))
             row.addWidget(name_lbl, 1)
+            if fp.name in managed:
+                tag = label("системный", "Tag")
+                tag.setToolTip("Поставлен лаунчером (косметика rurukaSuka). Отключается в меню сборки или в Настройках.")
+                row.addWidget(tag)
+                frame = QFrame()
+                frame.setLayout(row)
+                lay.addWidget(frame)
+                continue
             tog = QPushButton("Включить" if is_disabled else "Выключить")
             def make_toggle(fp_=fp, is_dis=is_disabled, lay_=lay, sub=subdir, ex=exts):
                 def do():
@@ -1323,6 +1332,14 @@ class InstanceCard(QFrame):
         m.addSeparator()
         m.addAction(ic("desc"), "Управление содержимым…", lambda: w.manage_mods(self.inst))
         m.addAction(ic("image"), "Сменить иконку…", lambda: w.set_instance_icon(self.inst))
+        if (self.inst.get("loader") or "vanilla") != "vanilla":
+            cos = m.addAction("Косметика rurukaSuka")
+            cos.setCheckable(True)
+            cos.setChecked(bool(self.inst.get("rurukasuka", w.settings.get("rurukasuka", True))))
+            cos.setEnabled(bool(w.settings.get("rurukasuka", True)))
+            cos.setToolTip("Системный мод косметики для этой сборки" if cos.isEnabled()
+                           else "Выключено для всех сборок в Настройках")
+            cos.toggled.connect(lambda v: w.instances.update(self.inst["id"], rurukasuka=bool(v)))
         m.addSeparator()
         m.addAction(ic("desc"), "Переименовать…", lambda: w.rename_instance(self.inst))
         m.addAction(ic("copy"), "Копировать", lambda: w.copy_instance(self.inst))
@@ -2479,6 +2496,10 @@ class SettingsPage(QScrollArea):
         row("Размер окна игры", res)
         check("Запускать на весь экран", "fullscreen")
         check("HD-скины и плащи в игре (CustomSkinLoader для аккаунтов mc-ru.org)", "csl_skins")
+        check("Косметика rurukaSuka (гардероб, руры) — системный мод", "rurukasuka")
+        lay.addWidget(label("Ставится автоматически в сборки Fabric/Quilt поддерживаемых версий; для аккаунта "
+                            "mc-ru.org вход в гардероб происходит сам. Можно выключить для отдельной сборки в её меню.",
+                            "Hint", wrap=True))
 
         section("Лаунчер", "settings")
         lang = QComboBox()
