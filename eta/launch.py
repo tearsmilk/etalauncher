@@ -330,10 +330,13 @@ class Game:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 if dest.is_symlink() or dest.exists():
                     dest.unlink()
+                target = info["target"].replace("/", os.sep)
                 try:
-                    os.symlink(info["target"], dest)
+                    if OS_NAME == "windows":   # NTFS links need privileges and misread "../" targets — copy instead
+                        raise OSError
+                    os.symlink(target, dest)
                 except OSError:
-                    src = (dest.parent / info["target"]).resolve()
+                    src = (dest.parent / target).resolve()
                     if src.is_file():
                         shutil.copy2(src, dest)
         exe = find_java(base)
