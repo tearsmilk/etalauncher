@@ -3,6 +3,7 @@ system certificates), a thread pool that hands results back to the Qt thread, an
 import hashlib
 import json
 import ssl
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -46,6 +47,30 @@ def get_bytes(url, timeout=20, params=None):
 
 def get_json(url, timeout=20, params=None):
     return json.loads(get_bytes(url, timeout, params).decode("utf-8"))
+
+
+def post_json(url, payload, timeout=20):
+    """POST JSON → parsed JSON (None for an empty 204). A 4xx/5xx with a JSON body raises NetError with the
+    server's errorMessage (Yggdrasil style) so the user sees «Неверный пароль» instead of «HTTP Error 403»."""
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST",
+                                 headers={"User-Agent": USER_AGENT, "Accept": "application/json",
+                                          "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
+            raw = r.read()
+    except urllib.error.HTTPError as e:
+        try:
+            info = json.loads(e.read().decode("utf-8"))
+            msg = info.get("errorMessage") or info.get("error") or info.get("detail")
+        except Exception:  # noqa: BLE001
+            msg = None
+        err = NetError(msg or _explain(e))
+        err.status = e.code
+        raise err from e
+    except Exception as e:  # noqa: BLE001
+        raise NetError(_explain(e)) from e
+    return json.loads(raw.decode("utf-8")) if raw.strip() else None
 
 
 def download(url, dest, timeout=60, progress=None, cancel=None, chunk=1 << 16):

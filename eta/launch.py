@@ -24,8 +24,8 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import __version__, net
-from .modrinth import InstallError
+from . import __version__, mcru, net
+from .modrinth import InstallError, content_versions
 from .paths import data_dir
 
 MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
@@ -180,7 +180,8 @@ class Game:
     """Everything below runs in a worker thread. progress(stage, done, total, text); cancel() → True aborts;
     log(line) gets installer / download chatter."""
 
-    STAGES = ("version", "java", "loader", "libraries", "assets", "launch")
+    STAGES = ("version", "java", "loader", "libraries", "assets", "auth", "launch")
+    MOD_LOADERS = ("fabric", "quilt", "forge", "neoforge")
 
     def __init__(self, root, java_root=None, progress=None, cancel=None, log=None, workers=8):
         self.root = Path(root)
@@ -582,8 +583,11 @@ class Game:
                     shutil.copyfile(self.root / "assets" / "objects" / h[:2] / h, dest)
 
     # -- command line
-    def command(self, v, java, game_dir, acc, settings, natives_dir, classpath, log_arg=None, inst=None):
+    def command(self, v, java, game_dir, acc, settings, natives_dir, classpath, log_arg=None, inst=None,
+                injector=None):
         inst = inst or {}
+        mcru_acc = acc.get("type") == "mcru"
+        token = (acc.get("access_token") or "0") if mcru_acc else "0"
         w, h = int(settings.get("width") or 0), int(settings.get("height") or 0)
         fullscreen = bool(settings.get("fullscreen"))
         features = {"is_demo_user": False, "has_custom_resolution": bool(w and h) and not fullscreen,
@@ -596,8 +600,10 @@ class Game:
         vars_ = {
             "auth_player_name": acc["name"], "version_name": v["id"], "game_directory": str(game_dir),
             "assets_root": str(assets_root), "assets_index_name": ai.get("id", v.get("assets", "legacy")),
-            "auth_uuid": acc["uuid"].replace("-", ""), "auth_access_token": "0", "auth_session": "0",
-            "user_type": "legacy", "version_type": v.get("type", "release"), "user_properties": "{}",
+            "auth_uuid": acc["uuid"].replace("-", ""),
+            "auth_access_token": token, "auth_session": token,
+            "user_type": "mojang" if mcru_acc else "legacy", "version_type": v.get("type", "release"),
+            "user_properties": "{}",
             "natives_directory": str(natives_dir), "launcher_name": "eta", "launcher_version": __version__,
             "classpath": cp_str, "classpath_separator": os.pathsep, "library_directory": str(self.root / "libraries"),
             "clientid": "", "auth_xuid": "", "resolution_width": str(w or 854), "resolution_height": str(h or 480),
@@ -629,7 +635,10 @@ class Game:
         if fullscreen:
             game.append("--fullscreen")
         mem = int(inst.get("memory_mb") or settings.get("memory_mb") or 4096)
-        cmd = [java, f"-Xmx{mem}M", "-Dminecraft.launcher.brand=eta", f"-Dminecraft.launcher.version={__version__}"]
+        cmd = [java, f"-Xmx{mem}M"]
+        if mcru_acc and injector:
+            cmd += [f"-javaagent:{injector}={mcru.YGGDRASIL}", "-Dauthlibinjector.side=client"]
+        cmd += ["-Dminecraft.launcher.brand=eta", f"-Dminecraft.launcher.version={__version__}"]
         if OS_NAME == "osx":
             cmd.append("-Xdock:name=" + (inst.get("name") or "Minecraft"))
         cmd += shlex.split(settings.get("jvm_args") or "")
@@ -661,7 +670,77 @@ class Game:
         natives_dir = self.root / "natives" / v["id"]
         cp, log_arg = self.ensure_files(v, natives_dir)
         self._check()
+        injector = None
+        out = {}
+        if acc.get("type") == "mcru":
+            self._p("auth", 0, 0, "Проверяем сессию mc-ru.org…")
+            out["account"] = self.mcru_session(acc)
+            self._check()
+            injector = mcru.authlib_injector(self.root / "authlib-injector",
+                                             lambda d, t: self._p("auth", d, t, "authlib-injector"))
+            if settings.get("csl_skins", True) and loader in self.MOD_LOADERS:
+                self._p("auth", 0, 0, "CustomSkinLoader…")
+                self.ensure_csl(game_dir, mc, loader)
+            self._check()
         self._p("launch", 0, 1, "Собираем команду запуска…")
-        cmd = self.command(v, java, game_dir, acc, settings, natives_dir, cp, log_arg, inst)
+        cmd = self.command(v, java, game_dir, acc, settings, natives_dir, cp, log_arg, inst, injector)
         return {"cmd": cmd, "cwd": str(game_dir), "env": clean_env(), "version": v["id"], "java": java,
-                "loader_version": lv, "started": time.time()}
+                "loader_version": lv, "started": time.time(), **out}
+
+    # -- mc-ru.org
+    def mcru_session(self, acc):
+        """Make sure the Yggdrasil token is alive (validate → refresh); mutates and returns acc for saving."""
+        if mcru.validate(acc.get("access_token", ""), acc.get("client_token", "")):
+            return acc
+        try:
+            acc.update(mcru.refresh(acc.get("access_token", ""), acc.get("client_token", "")))
+        except net.NetError as e:
+            raise net.NetError("Сессия mc-ru.org истекла — войдите в аккаунт заново") from e
+        return acc
+
+    def ensure_csl(self, game_dir, mc, loader):
+        """CustomSkinLoader mod + config pointing at mc-ru.org (HD and animated skins). Never fatal."""
+        try:
+            mods = Path(game_dir) / "mods"
+            marker = Path(game_dir) / "eta-csl.json"
+            have = json.loads(marker.read_text("utf-8")) if marker.exists() else {}
+            if not (have.get("mc") == mc and have.get("loader") == loader
+                    and (mods / have.get("file", "")).exists()):
+                vs = content_versions("customskinloader", loader, mc)
+                vs = [x for x in vs if x["file"].get("filename")]
+                if vs:
+                    pick = next((x for x in vs if x.get("type") == "release"), vs[0])
+                    for old in mods.glob("CustomSkinLoader*.jar"):
+                        old.unlink(missing_ok=True)
+                    dest = mods / pick["file"]["filename"]
+                    net.download(pick["file"]["url"], dest)
+                    sha1 = pick["file"].get("sha1")
+                    if sha1 and _sha1(dest) != sha1:
+                        dest.unlink(missing_ok=True)
+                        raise net.NetError("CustomSkinLoader: контрольная сумма не совпала")
+                    marker.write_text(json.dumps({"mc": mc, "loader": loader, "version": pick["name"],
+                                                  "file": dest.name}, ensure_ascii=False), "utf-8")
+                    self.log(f"[eta] CustomSkinLoader {pick['name']} → mods/{dest.name}")
+                else:
+                    self.log(f"[eta] CustomSkinLoader: нет сборки для {loader} {mc}, HD-скины в игре не будет")
+            self.csl_config(game_dir)
+        except Exception as e:  # noqa: BLE001
+            self.log(f"[eta] CustomSkinLoader пропущен: {e}")
+
+    @staticmethod
+    def csl_config(game_dir):
+        cfg = Path(game_dir) / "CustomSkinLoader" / "CustomSkinLoader.json"
+        if cfg.exists():
+            try:
+                data = json.loads(cfg.read_text("utf-8"))
+            except ValueError:
+                data = dict(mcru.CSL_CONFIG)
+            lst = data.get("loadlist") or []
+            if any(e.get("root") == mcru.CSL_ROOT for e in lst):
+                return cfg
+            data["loadlist"] = [dict(mcru.CSL_ENTRY)] + lst
+        else:
+            data = json.loads(json.dumps(mcru.CSL_CONFIG))
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+        return cfg

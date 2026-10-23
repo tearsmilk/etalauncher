@@ -1,5 +1,5 @@
 // Эта (Eta) — Screens page: Загрузка, Главная (Light / Dark), Главная — стекло (панель справа, свёрнута), Сборки —
-// каталог, Мои сборки, Аккаунты, Новый аккаунт, Запуск (подготовка / игра запущена), Настройки (с «Оформлением»).
+// каталог, Мои сборки, Аккаунты, Новый аккаунт (оффлайн / mc-ru.org), Запуск (подготовка / игра запущена), Настройки (с «Оформлением»).
 // Run after 01_ui_kit.js.
 let page = figma.root.children.find(p => p.name === "Screens");
 if (!page) { page = figma.createPage(); page.name = "Screens"; }
@@ -221,7 +221,7 @@ MODE = "Light";
 {
   const [f, b] = shell("Аккаунты", 2);
   const hd = al("HORIZONTAL", {name: "Head", align: "CENTER"}); hd.resize(1006, 40); hd.primaryAxisSizingMode = "FIXED"; hd.primaryAxisAlignItems = "SPACE_BETWEEN"; hd.appendChild(txt("Аккаунты", {family: SERIF, size: 28})); hd.appendChild(btn("+ Добавить аккаунт", "accent")); b.appendChild(hd);
-  b.appendChild(txt("Выберите, под каким ником играть. Скин и вход через Microsoft появятся позже.", {color: "muted"}));
+  b.appendChild(txt("Выберите, под каким ником играть. Аккаунт mc-ru.org приносит в игру скин и плащ; вход через Microsoft появится позже.", {color: "muted"}));
   for (const [n, on, sk, hr] of [["Hoka_Neko", true, "#E0AC84", "#5A3A22"], ["Steve_09", false, "#F2C6A0", "#3A2618"], ["Alex", false, "#E0AC84", "#D9A441"]]) {
     const c = al("HORIZONTAL", {name: n, gap: 14, pad: [12, 14, 12, 14], radius: 14, fill: "card", stroke: on ? "accent" : "border", align: "CENTER"}); if (on) c.strokeWeight = 2;
     c.resize(1006, 40); c.primaryAxisSizingMode = "FIXED"; c.appendChild(head(52, sk, hr));
@@ -237,12 +237,33 @@ MODE = "Light";
   const b = al("VERTICAL", {name: "Dialog", gap: 10, pad: [18, 22, 18, 22]}); b.resize(460, 280); b.primaryAxisSizingMode = "FIXED"; b.counterAxisSizingMode = "FIXED"; f.appendChild(b);
   b.appendChild(txt("Новый аккаунт", {family: SERIF, size: 18}));
   const sg = al("HORIZONTAL", {name: "Tabs", gap: 0}); const a1 = al("HORIZONTAL", {name: "Offline", pad: [5, 12, 5, 12], fill: "selected", stroke: "accent"}); a1.appendChild(txt("Оффлайн")); sg.appendChild(a1);
+  const a15 = al("HORIZONTAL", {name: "mc-ru.org", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a15.appendChild(txt("mc-ru.org")); sg.appendChild(a15);
   const a2 = al("HORIZONTAL", {name: "Microsoft", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a2.appendChild(txt("Microsoft · скоро", {color: "faint"})); sg.appendChild(a2); b.appendChild(sg);
   const card = al("HORIZONTAL", {name: "Card", gap: 14, pad: 14, radius: 14, fill: "card", stroke: "border"}); card.resize(416, 40); card.primaryAxisSizingMode = "FIXED";
   card.appendChild(head(64, "#F6D5B8", "#6B4A7A")); const cc = al("VERTICAL", {name: "Fields", gap: 4}); cc.layoutGrow = 1; cc.appendChild(txt("Ник"));
   const fld = al("HORIZONTAL", {name: "Field", pad: [4, 8, 4, 8], radius: 6, fill: "input", stroke: "accent"}); fld.resize(300, 26); fld.primaryAxisSizingMode = "FIXED"; fld.appendChild(txt("Kotik_228")); cc.appendChild(fld);
   cc.appendChild(txt("Ник свободен ✓", {size: 11, color: "done"})); cc.appendChild(txt("UUID: e4b41c70-7c8c-3535-8b63-3e0155c4a91c", {size: 11, color: "muted"})); card.appendChild(cc); b.appendChild(card);
   const rr = al("HORIZONTAL", {name: "Buttons", gap: 8}); rr.appendChild(btn("Отмена")); rr.appendChild(btn("Создать", "accent")); b.appendChild(rr);
+  place(f);
+}
+
+// Новый аккаунт — mc-ru.org (вход на сайт: скин и плащ, HD и анимированные)
+{
+  const f = frame("Новый аккаунт — mc-ru.org", 460, 330);
+  const b = al("VERTICAL", {name: "Dialog", gap: 10, pad: [18, 22, 18, 22]}); b.resize(460, 330); b.primaryAxisSizingMode = "FIXED"; b.counterAxisSizingMode = "FIXED"; f.appendChild(b);
+  b.appendChild(txt("Новый аккаунт", {family: SERIF, size: 18}));
+  const sg = al("HORIZONTAL", {name: "Tabs", gap: 0});
+  const a1 = al("HORIZONTAL", {name: "Offline", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a1.appendChild(txt("Оффлайн")); sg.appendChild(a1);
+  const a15 = al("HORIZONTAL", {name: "mc-ru.org", pad: [5, 12, 5, 12], fill: "selected", stroke: "accent"}); a15.appendChild(txt("mc-ru.org")); sg.appendChild(a15);
+  const a2 = al("HORIZONTAL", {name: "Microsoft", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a2.appendChild(txt("Microsoft · скоро", {color: "faint"})); sg.appendChild(a2); b.appendChild(sg);
+  const hint = txt("Аккаунт сайта mc-ru.org: скин и плащ (в том числе HD и анимированные) подтянутся в игру. Нет аккаунта? Зарегистрируйтесь на mc-ru.org", {size: 11, color: "muted"}); hint.resize(416, 32); hint.textAutoResize = "HEIGHT"; b.appendChild(hint);
+  const card = al("VERTICAL", {name: "Card", gap: 6, pad: 14, radius: 14, fill: "card", stroke: "border"}); card.resize(416, 40); card.primaryAxisSizingMode = "FIXED";
+  card.appendChild(txt("Ник или email"));
+  const f1 = al("HORIZONTAL", {name: "Login", pad: [4, 8, 4, 8], radius: 6, fill: "input", stroke: "border"}); f1.resize(388, 26); f1.primaryAxisSizingMode = "FIXED"; f1.appendChild(txt("hoka@example.com")); card.appendChild(f1);
+  card.appendChild(txt("Пароль"));
+  const f2 = al("HORIZONTAL", {name: "Password", pad: [4, 8, 4, 8], radius: 6, fill: "input", stroke: "accent"}); f2.resize(388, 26); f2.primaryAxisSizingMode = "FIXED"; f2.appendChild(txt("••••••••")); card.appendChild(f2);
+  card.appendChild(txt("Вход на mc-ru.org: скин и плащ подтянутся в игру.", {size: 11, color: "muted"})); b.appendChild(card);
+  const rr = al("HORIZONTAL", {name: "Buttons", gap: 8}); rr.appendChild(btn("Отмена")); rr.appendChild(btn("Войти", "accent")); b.appendChild(rr);
   place(f);
 }
 

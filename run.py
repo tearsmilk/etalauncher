@@ -38,6 +38,10 @@ def selftest():
     report["mrpack"] = _mrpack_test(tmp)
     # game files + Java + Fabric-style loader from a local server, then the launch command run with a fake java
     report["launch"] = _launch_test(tmp)
+    # mc-ru.org accounts: fake Yggdrasil (login, refresh, validate), authlib-injector, CustomSkinLoader, command
+    from tests.test_mcru import run as mcru_test
+
+    report["mcru"] = mcru_test(tmp)["calls"]
     from eta import theme
     from eta.modrinth import normalize
 
@@ -112,6 +116,20 @@ def selftest():
     assert not ad.ok.isEnabled()
     ad.name.setText("Alex_2")
     assert ad.ok.isEnabled() and "UUID" in ad.uuid.text()
+    ad.site.setChecked(True)   # mc-ru.org mode: «Войти» only with both fields, link in the hint
+    assert ad.mode == "mcru" and ad.ok.text() == "Войти" and not ad.ok.isEnabled() and "mc-ru.org" in ad.hint.text()
+    ad.login.setText("hoka@example.com")
+    ad.password.setText("x")
+    assert ad.ok.isEnabled()
+    ad.off.setChecked(True)
+    assert ad.mode == "offline" and ad.ok.text() == "Создать" and ad.ok.isEnabled()
+    acc_site = accounts.add_mcru("Hoka_Neko", "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", "tok", "ct", "hoka@example.com")
+    assert AccountStore().get(acc_site["uuid"])["type"] == "mcru" and accounts.update(acc_site["uuid"], access_token="t2")
+    win.select_account(acc_site["uuid"])
+    win.go("accounts")
+    app.processEvents()
+    win.grab()
+    accounts.remove(acc_site["uuid"])
     acc2 = accounts.add_offline("Alex_2")
     win.select_account(acc2["uuid"])
     assert win.account()["name"] == "Alex_2"

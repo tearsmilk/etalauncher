@@ -140,8 +140,8 @@ const ac = comp("Account card", "HORIZONTAL", {pad: [12, 14, 12, 14], gap: 14, r
 ac.resize(720, 40); ac.primaryAxisSizingMode = "FIXED";
 ac.appendChild(head(52));
 const acc = al("VERTICAL", {name: "Text", gap: 2}); acc.layoutGrow = 1;
-const an = al("HORIZONTAL", {name: "Name", gap: 6, align: "CENTER"}); an.appendChild(txt("Hoka_Neko", {family: SERIF, size: 16})); const bd = al("HORIZONTAL", {name: "Badge", pad: [1, 8, 1, 8], radius: 8, fill: "accent"}); bd.appendChild(txt("Выбран", {size: 11, color: "on-accent"})); an.appendChild(bd); acc.appendChild(an);
-acc.appendChild(txt("Оффлайн-аккаунт · играли 2 ч назад", {color: "muted"})); acc.appendChild(txt("50c353a8-da7f-3cd7-ae06-1164960c56d0", {size: 11, color: "muted"})); ac.appendChild(acc);
+const an = al("HORIZONTAL", {name: "Name", gap: 6, align: "CENTER"}); an.appendChild(txt("Hoka_Neko", {family: SERIF, size: 16})); an.appendChild(tagEl("mc-ru.org", "l-orange")); const bd = al("HORIZONTAL", {name: "Badge", pad: [1, 8, 1, 8], radius: 8, fill: "accent"}); bd.appendChild(txt("Выбран", {size: 11, color: "on-accent"})); an.appendChild(bd); acc.appendChild(an);
+acc.appendChild(txt("Аккаунт mc-ru.org · играли 2 ч назад", {color: "muted"})); acc.appendChild(txt("50c353a8-da7f-3cd7-ae06-1164960c56d0", {size: 11, color: "muted"})); ac.appendChild(acc);
 ac.appendChild(txt("⧉   🗑", {color: "muted"})); grid.appendChild(ac);
 const chip = comp("Account chip", "HORIZONTAL", {pad: [6, 8, 6, 8], gap: 8, radius: 12, fill: "card", stroke: "border"}); chip.resize(186, 48); chip.primaryAxisSizingMode = "FIXED";
 chip.appendChild(head(30)); const cc = al("VERTICAL", {name: "Text", gap: 0}); cc.appendChild(txt("Hoka_Neko", {style: "Semi Bold"})); cc.appendChild(txt("Оффлайн", {size: 11, color: "muted"})); chip.appendChild(cc); grid.appendChild(chip);

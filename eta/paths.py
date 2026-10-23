@@ -54,7 +54,7 @@ class Settings(dict):
         "parallel_downloads": 6, "default_source": "modrinth", "selected_account": "", "selected_instance": "",
         "sidebar_hidden": False, "check_updates": True, "sidebar_side": "left", "filters_hidden": False,
         "accent": "#D97757", "backdrop": "none", "glass": False, "glass_opacity": 0.6, "blur": 24, "veil": 18,
-        "serif_headings": True,
+        "serif_headings": True, "csl_skins": True,
     }
 
     def __init__(self, file=None):

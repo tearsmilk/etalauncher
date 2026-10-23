@@ -33,13 +33,30 @@ hide with «Фильтры».
 | Главная | Greeting, compact card of the selected instance, **Играть** (downloads what is missing, then runs the game), instance switcher, game folder, recent instances, launcher news |
 | Сборки → Каталог | Modrinth-like browser: search, sources (Modrinth / CurseForge), loader chips (Fabric / Forge / NeoForge / Quilt), game version, categories, sort, «show more»; project page (description, versions); install dialog → creates an instance |
 | Сборки → Мои сборки | Instance cards: play, select, open folder, rename, copy, delete; «Создать сборку» (name, game version, loader) |
-| Аккаунты | Offline accounts (nickname 3–16 `[A-Za-z0-9_]`, UUID = `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)` like vanilla offline servers), procedural pixel heads, select / copy UUID / delete; Microsoft tab reserved |
+| Аккаунты | Offline accounts (nickname 3–16 `[A-Za-z0-9_]`, UUID = `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)` like vanilla offline servers), procedural pixel heads, select / copy UUID / delete; **mc-ru.org** accounts (site login, real skin head, see below); Microsoft tab reserved |
 | Настройки | Оформление (see above), game folder, memory slider (system RAM), Java (auto-detect / browse), JVM args, window size, full screen, theme, close on launch, console, default source, parallel downloads |
+
+## Аккаунт mc-ru.org
+
+«Добавить аккаунт → mc-ru.org»: вход по нику или email и паролю от сайта сообщества. Сайт держит
+Yggdrasil-совместимый сервер авторизации (`https://mc-ru.org/api/yggdrasil`, спецификация authlib-injector), поэтому
+лаунчер получает `accessToken` и UUID, при запуске проверяет сессию (`validate` → `refresh`, токены сохраняются в
+`accounts.json`) и добавляет в команду `-javaagent:authlib-injector.jar=https://mc-ru.org/api/yggdrasil` — игра
+логинится на сайт и показывает скин и плащ без модов (стандартные 64×64). Сам authlib-injector скачивается с
+`authlib-injector.yushi.moe` (sha256, кэш в `<game>/authlib-injector/`).
+
+HD и анимированные скины и плащи приходят через **CustomSkinLoader**: для сборок на Fabric / Quilt / Forge /
+NeoForge лаунчер докачивает мод с Modrinth в `mods/` (маркер `eta-csl.json`) и пишет
+`CustomSkinLoader/CustomSkinLoader.json` с источником `CustomSkinAPI → https://mc-ru.org/api/csl/` первым в списке.
+Отключается в Настройки → Игра («HD-скины и плащи в игре»); на ванили пропускается. Голова на карточке аккаунта и в
+боковой панели — настоящая (`/api/users/<ник>/skin.png`), пока не загрузилась — пиксельная заглушка.
+Файлы: `eta/mcru.py` (API сайта, authlib-injector), `launch.py` (`mcru_session`, `ensure_csl`, `csl_config`),
+`tests/test_mcru.py` (локальный фейковый Yggdrasil).
 
 ## Files
 
 `eta/accounts.py` · `eta/instances.py` · `eta/catalog.py` (DemoProvider) · `eta/modrinth.py` (ModrinthProvider,
-`.mrpack` install) · `eta/net.py` (HTTPS via certifi, background runner, icon cache) · `eta/launch.py` (Minecraft, Java, loaders,
+`.mrpack` install) · `eta/net.py` (HTTPS via certifi, background runner, icon cache) · `eta/mcru.py` (mc-ru.org) · `eta/launch.py` (Minecraft, Java, loaders,
 command line) · `eta/backgrounds.py` · `eta/widgets.py` (pixel heads, block icons, banner) · `eta/ui.py`.
 Data lives in `~/Library/Application Support/Eta` (`settings.json`, `accounts.json`, `instances.json`).
 
@@ -49,7 +66,8 @@ Data lives in `~/Library/Application Support/Eta` (`settings.json`, `accounts.js
 cd eta
 pip install -r requirements.txt
 python run.py              # the launcher
-python run.py --selftest   # headless checks (offline UUID, validation, catalog, offline .mrpack install and a full launch — version, Java, loader, assets — from a local server with a fake java, glass theme, every page and dialog)
+python run.py --selftest   # headless checks (offline UUID, validation, catalog, offline .mrpack install, a full launch — version, Java, loader, assets — from a local server with a fake java, mc-ru.org login against a fake Yggdrasil, glass theme, every page and dialog)
+python -m tests.test_mcru  # only the mc-ru.org part
 ```
 
 ## Design

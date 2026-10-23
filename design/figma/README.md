@@ -6,7 +6,7 @@
 > в эти скрипты в том же изменении, что и код, и выкладывается в Figma.
 
 1. `01_ui_kit.js` — страница **UI Kit**: токены (коллекции «Eta — Light» / «Eta — Dark», зеркало `eta/theme.py`),
-   иконка η, компоненты: Play button, Project row, Instance card, Account card, Account chip, Filter chip, Tags,
+   иконка η, компоненты: Play button, Project row, Instance card, Account card (с тегом mc-ru.org), Account chip, Filter chip, Tags,
    пиксельная голова, иконка-блок.
 2. `02_screens.js` — страница **Screens**:
 
@@ -18,4 +18,5 @@
 | Мои сборки — карточки и «Создать сборку» | Light | «Сборки» → «Мои сборки» |
 | Аккаунты — список, выбранный аккаунт | Light | «Аккаунты» |
 | Новый аккаунт — оффлайн-ник, превью головы, UUID | Light | «Добавить аккаунт» |
+| Новый аккаунт — mc-ru.org: ник/email, пароль, «Войти» | Light | «Добавить аккаунт» → mc-ru.org |
 | Настройки — игра, лаунчер, загрузки | Light | «Настройки» |

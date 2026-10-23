@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
                                QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, LOGO, __version__, backgrounds, discord_rpc, icons, launch, net, theme
+from . import APP_NAME, LOGO, __version__, backgrounds, discord_rpc, icons, launch, mcru, net, theme
 from .accounts import AccountStore, offline_uuid, validate
 from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, DemoProvider, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
@@ -101,6 +101,48 @@ def set_icon(win, lbl, url, seed, size, icon_path=None):
             if not pix.isNull():
                 lbl.setPixmap(rounded(pix, size))
         win.icons.get(url, done)
+
+
+def skin_head(pix, size, radius):
+    """The 8×8 face (8,8) with the hat layer (40,8) from a skin texture, pixel-scaled and rounded."""
+    from PySide6.QtGui import QPixmap
+    if pix.isNull() or pix.width() < 64:
+        return None
+    cell = pix.width() // 64
+    face = pix.copy(8 * cell, 8 * cell, 8 * cell, 8 * cell)
+    out = QPixmap(face.size())
+    out.fill(Qt.transparent)
+    p = QPainter(out)
+    p.drawPixmap(0, 0, face)
+    p.drawPixmap(0, 0, pix.copy(40 * cell, 8 * cell, 8 * cell, 8 * cell))
+    p.end()
+    big = out.scaled(size * 2, size * 2, Qt.IgnoreAspectRatio, Qt.FastTransformation)
+    res = QPixmap(size * 2, size * 2)
+    res.fill(Qt.transparent)
+    p = QPainter(res)
+    clip = QPainterPath()
+    clip.addRoundedRect(QRectF(0, 0, size * 2, size * 2), radius * 2, radius * 2)
+    p.setClipPath(clip)
+    p.drawPixmap(0, 0, big)
+    p.end()
+    res.setDevicePixelRatio(2)
+    return res
+
+
+def set_head(win, lbl, acc, size, radius):
+    """pixel_head now; for mc-ru.org accounts the real skin head when it arrives (icon cache → network)."""
+    name = acc["name"] if acc else "?"
+    lbl.setPixmap(pixel_head(name, size, radius))
+    if acc and acc.get("type") == "mcru" and getattr(win, "icons", None) is not None:
+        def done(pix, lbl=lbl):
+            head = skin_head(pix, size, radius)
+            if head:
+                lbl.setPixmap(head)
+        win.icons.get(mcru.head_url(acc["name"]), done)
+
+
+def account_kind(acc):
+    return "Аккаунт mc-ru.org" if acc.get("type") == "mcru" else "Оффлайн-аккаунт"
 
 
 LOADER_COLORS = {"fabric": "orange", "forge": "blue", "neoforge": "red", "quilt": "purple", "vanilla": "green"}
@@ -1502,9 +1544,14 @@ class ModpacksPage(QWidget):
 # ---------------------------------------------------------------- accounts
 
 class AddAccountDialog(QDialog):
+    """Оффлайн (ник → UUID) or mc-ru.org (site login → Yggdrasil tokens). self.result_acc holds the created
+    account after accept()."""
+
     def __init__(self, win):
         super().__init__(win)
         self.win = win
+        self.result_acc = None
+        self.mode = "offline"
         self.setWindowTitle("Новый аккаунт")
         self.setFixedWidth(460)
         lay = QVBoxLayout(self)
@@ -1512,20 +1559,34 @@ class AddAccountDialog(QDialog):
         lay.addWidget(label("Новый аккаунт", "H2"))
         seg = QHBoxLayout()
         seg.setSpacing(0)
-        off = QPushButton("Оффлайн")
-        off.setObjectName("Seg")
-        off.setCheckable(True)
-        off.setChecked(True)
+        self.seg = QButtonGroup(self)
+        self.seg.setExclusive(True)
+        self.off = QPushButton("Оффлайн")
+        self.off.setObjectName("Seg")
+        self.off.setCheckable(True)
+        self.off.setChecked(True)
+        self.site = QPushButton("mc-ru.org")
+        self.site.setObjectName("Seg")
+        self.site.setCheckable(True)
         ms = QPushButton("Microsoft · скоро")
         ms.setObjectName("Seg")
         ms.setEnabled(False)
         ms.setToolTip("Вход через Microsoft появится вместе с загрузкой игры")
-        seg.addWidget(off)
-        seg.addWidget(ms)
+        for b in (self.off, self.site, ms):
+            seg.addWidget(b)
+        self.seg.addButton(self.off)
+        self.seg.addButton(self.site)
+        self.off.toggled.connect(lambda on: on and self.set_mode("offline"))
+        self.site.toggled.connect(lambda on: on and self.set_mode("mcru"))
         seg.addStretch(1)
         lay.addLayout(seg)
-        lay.addWidget(label("Оффлайн-аккаунт работает без лицензии: для одиночной игры и серверов в "
-                            "оффлайн-режиме.", "Hint", wrap=True))
+        self.hint = label("Оффлайн-аккаунт работает без лицензии: для одиночной игры и серверов в "
+                          "оффлайн-режиме.", "Hint", wrap=True)
+        self.hint.setOpenExternalLinks(True)
+        lay.addWidget(self.hint)
+        self.stack = QStackedWidget()
+        lay.addWidget(self.stack)
+        # offline
         card = QFrame()
         card.setObjectName("Box")
         h = QHBoxLayout(card)
@@ -1546,7 +1607,28 @@ class AddAccountDialog(QDialog):
         self.uuid.setTextInteractionFlags(Qt.TextSelectableByMouse)
         col.addWidget(self.uuid)
         h.addLayout(col, 1)
-        lay.addWidget(card)
+        self.stack.addWidget(card)
+        # mc-ru.org
+        box = QFrame()
+        box.setObjectName("Box")
+        v = QVBoxLayout(box)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(6)
+        v.addWidget(label("Ник или email"))
+        self.login = QLineEdit()
+        self.login.setPlaceholderText("Steve_2009 или steve@example.com")
+        self.login.textChanged.connect(self.update_preview)
+        self.login.returnPressed.connect(self._ok)
+        v.addWidget(self.login)
+        v.addWidget(label("Пароль"))
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.Password)
+        self.password.textChanged.connect(self.update_preview)
+        self.password.returnPressed.connect(self._ok)
+        v.addWidget(self.password)
+        self.site_msg = label("Вход на mc-ru.org: скин и плащ подтянутся в игру.", "Hint", wrap=True)
+        v.addWidget(self.site_msg)
+        self.stack.addWidget(box)
         row = QHBoxLayout()
         row.addStretch(1)
         c = QPushButton("Отмена")
@@ -1557,26 +1639,68 @@ class AddAccountDialog(QDialog):
         self.ok.clicked.connect(self._ok)
         row.addWidget(self.ok)
         lay.addLayout(row)
+        self.busy = False
         self.update_preview()
 
+    def set_mode(self, mode):
+        self.mode = mode
+        self.stack.setCurrentIndex(0 if mode == "offline" else 1)
+        if mode == "offline":
+            self.hint.setText("Оффлайн-аккаунт работает без лицензии: для одиночной игры и серверов в "
+                              "оффлайн-режиме.")
+            self.ok.setText("Создать")
+        else:
+            self.hint.setText("Аккаунт сайта mc-ru.org: скин и плащ (в том числе HD и анимированные) подтянутся "
+                              f"в игру. Нет аккаунта? <a href=\"{mcru.SITE}/#account\">Зарегистрируйтесь на "
+                              "mc-ru.org</a>")
+            self.ok.setText("Войти")
+        self.update_preview()
+
+    def _set_msg(self, w, text, kind):
+        w.setText(text)
+        w.setObjectName(kind)
+        w.style().unpolish(w)
+        w.style().polish(w)
+
     def update_preview(self):
+        if self.mode == "mcru":
+            self.ok.setEnabled(bool(self.login.text().strip()) and bool(self.password.text()) and not self.busy)
+            return
         name = self.name.text().strip()
         self.head.setPixmap(pixel_head(name or "?", 64, 10))
         err = validate(name, self.win.accounts.names()) if name else None
         self.ok.setEnabled(bool(name) and err is None)
         if err:
-            self.msg.setText(err)
-            self.msg.setObjectName("Warn")
+            self._set_msg(self.msg, err, "Warn")
         else:
-            self.msg.setText("3–16 символов: латинские буквы, цифры и «_»" if not name else "Ник свободен ✓")
-            self.msg.setObjectName("Hint" if not name else "Ok")
-        self.msg.style().unpolish(self.msg)
-        self.msg.style().polish(self.msg)
+            self._set_msg(self.msg, "3–16 символов: латинские буквы, цифры и «_»" if not name else "Ник свободен ✓",
+                          "Hint" if not name else "Ok")
         self.uuid.setText(f"UUID: {offline_uuid(name)}" if name and not err else "")
 
     def _ok(self):
-        if self.ok.isEnabled():
+        if not self.ok.isEnabled():
+            return
+        if self.mode == "offline":
+            self.result_acc = self.win.accounts.add_offline(self.name.text().strip())
             self.accept()
+            return
+        login, password = self.login.text().strip(), self.password.text()
+        self.busy = True
+        self.ok.setEnabled(False)
+        self._set_msg(self.site_msg, "Входим…", "Hint")
+
+        def done(r):
+            self.busy = False
+            self.result_acc = self.win.accounts.add_mcru(r["name"], r["uuid"], r["access_token"],
+                                                         r["client_token"], login)
+            self.accept()
+
+        def failed(e):
+            self.busy = False
+            self._set_msg(self.site_msg, str(e), "Warn")
+            self.update_preview()
+
+        self.win.runner.run(lambda: mcru.authenticate(login, password), done, failed)
 
 
 class AccountsPage(QScrollArea):
@@ -1601,8 +1725,8 @@ class AccountsPage(QScrollArea):
         add.clicked.connect(self.win.add_account)
         head.addWidget(add)
         lay.addLayout(head)
-        lay.addWidget(label("Выберите, под каким ником играть. Скин и вход через Microsoft появятся позже.",
-                            "Muted", wrap=True))
+        lay.addWidget(label("Выберите, под каким ником играть. Аккаунт mc-ru.org приносит в игру скин и плащ; "
+                            "вход через Microsoft появится позже.", "Muted", wrap=True))
         sel = self.win.settings.get("selected_account")
         if not self.win.accounts.items:
             empty = QFrame()
@@ -1613,7 +1737,8 @@ class AccountsPage(QScrollArea):
             i.setPixmap(pixel_head("Steve", 72, 12))
             v.addWidget(i, 0, Qt.AlignHCenter)
             v.addWidget(label("Аккаунтов пока нет", "H2"), 0, Qt.AlignHCenter)
-            v.addWidget(label("Создайте оффлайн-аккаунт — нужен только ник.", "Muted"), 0, Qt.AlignHCenter)
+            v.addWidget(label("Создайте оффлайн-аккаунт (нужен только ник) или войдите через mc-ru.org.", "Muted"),
+                        0, Qt.AlignHCenter)
             b = QPushButton("Создать аккаунт")
             b.setObjectName("Accent")
             b.clicked.connect(self.win.add_account)
@@ -1627,17 +1752,19 @@ class AccountsPage(QScrollArea):
             h.setContentsMargins(14, 12, 14, 12)
             h.setSpacing(14)
             i = QLabel()
-            i.setPixmap(pixel_head(a["name"], 52, 9))
+            set_head(self.win, i, a, 52, 9)
             h.addWidget(i)
             col = QVBoxLayout()
             col.setSpacing(2)
             top = QHBoxLayout()
             top.addWidget(label(a["name"], "CardTitle"))
+            if a.get("type") == "mcru":
+                top.addWidget(tag("mc-ru.org", "orange"))
             if on:
                 top.addWidget(label("Выбран", "Badge"))
             top.addStretch(1)
             col.addLayout(top)
-            col.addWidget(label("Оффлайн-аккаунт" + (f" · играли {ago(a['last_used'])}" if a.get("last_used") else ""),
+            col.addWidget(label(account_kind(a) + (f" · играли {ago(a['last_used'])}" if a.get("last_used") else ""),
                                 "Muted"))
             u = label(a["uuid"], "Hint")
             u.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -1909,6 +2036,7 @@ class SettingsPage(QScrollArea):
         rl.addStretch(1)
         row("Размер окна игры", res)
         check("Запускать на весь экран", "fullscreen")
+        check("HD-скины и плащи в игре (CustomSkinLoader для аккаунтов mc-ru.org)", "csl_skins")
 
         section("Лаунчер", "settings")
         lang = QComboBox()
@@ -2041,8 +2169,8 @@ class LaunchDialog(QDialog):
     """Gets the game ready (version, Java, loader, libraries, assets) with a progress bar, then starts it and shows
     its console. The dialog stays alive while the game runs; closing it just hides it."""
 
-    SPAN = {"version": (0, 3), "java": (3, 25), "loader": (25, 38), "libraries": (38, 55), "assets": (55, 96),
-            "launch": (96, 100)}
+    SPAN = {"version": (0, 3), "java": (3, 25), "loader": (25, 38), "libraries": (38, 55), "assets": (55, 92),
+            "auth": (92, 97), "launch": (97, 100)}
 
     def __init__(self, win, inst, acc):
         super().__init__(win)
@@ -2125,7 +2253,8 @@ class LaunchDialog(QDialog):
         frac = done / total if total else 0.0
         self.bar.setValue(int(lo + (hi - lo) * frac))
         names = {"version": "Сведения о версии", "java": "Java", "loader": "Загрузчик модов",
-                 "libraries": "Библиотеки игры", "assets": "Ресурсы игры", "launch": "Запуск"}
+                 "libraries": "Библиотеки игры", "assets": "Ресурсы игры", "auth": "Вход mc-ru.org",
+                 "launch": "Запуск"}
         self.stage.setText(names.get(stage, stage) + "…")
         self.detail.setText(f"{text} — {done} из {total}" if total and total > 1 else text)
 
@@ -2136,6 +2265,10 @@ class LaunchDialog(QDialog):
             return
         if r.get("loader_version") and r["loader_version"] != self.inst.get("loader_version"):
             self.win.instances.update(self.inst["id"], loader_version=r["loader_version"])
+        if r.get("account"):
+            a = r["account"]
+            self.win.accounts.update(a["uuid"], access_token=a.get("access_token"), client_token=a.get("client_token"),
+                                     name=a.get("name", self.acc["name"]))
         self._log("[eta] " + " ".join(r["cmd"]))
         self.game = GameProcess(self)
         self.game.line.connect(self._log, Qt.QueuedConnection)
@@ -2401,6 +2534,9 @@ class MainWindow(QMainWindow):
         acc = self.account()
         head = QToolButton()
         head.setIcon(QIcon(pixel_head(acc["name"] if acc else "?", 30, 6)))
+        if acc and acc.get("type") == "mcru":
+            self.icons.get(mcru.head_url(acc["name"]),
+                           lambda pix, b=head: b.setIcon(QIcon(skin_head(pix, 30, 6) or pixel_head(acc["name"], 30, 6))))
         head.setIconSize(QSize(30, 30))
         head.setToolTip(acc["name"] if acc else "Добавить аккаунт")
         head.clicked.connect(lambda: self.go("accounts"))
@@ -2436,13 +2572,13 @@ class MainWindow(QMainWindow):
         cl = QHBoxLayout(chip)
         cl.setContentsMargins(8, 6, 8, 6)
         hd = QLabel()
-        hd.setPixmap(pixel_head(acc["name"] if acc else "?", 30, 6))
+        set_head(self, hd, acc, 30, 6)
         hd.setAttribute(Qt.WA_TransparentForMouseEvents)
         cl.addWidget(hd)
         col = QVBoxLayout()
         col.setSpacing(0)
         n = label(acc["name"] if acc else "Нет аккаунта", "ChipName")
-        t = label("Оффлайн" if acc else "Добавить…", "Hint")
+        t = label(("mc-ru.org" if acc.get("type") == "mcru" else "Оффлайн") if acc else "Добавить…", "Hint")
         for w in (n, t):
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
             col.addWidget(w)
@@ -2480,10 +2616,9 @@ class MainWindow(QMainWindow):
 
     def add_account(self):
         dlg = AddAccountDialog(self)
-        if dlg.exec():
-            acc = self.accounts.add_offline(dlg.name.text().strip())
-            self.select_account(acc["uuid"])
-            return acc
+        if dlg.exec() and dlg.result_acc:
+            self.select_account(dlg.result_acc["uuid"])
+            return dlg.result_acc
         return None
 
     def select_account(self, uid):
@@ -2494,6 +2629,9 @@ class MainWindow(QMainWindow):
     def remove_account(self, a):
         if QMessageBox.question(self, "Удалить аккаунт", f"Удалить аккаунт «{a['name']}»?") != QMessageBox.Yes:
             return
+        if a.get("type") == "mcru" and a.get("access_token"):
+            tok, ct = a["access_token"], a.get("client_token", "")
+            self.runner.run(lambda: mcru.invalidate(tok, ct), None, lambda e: None)
         self.accounts.remove(a["uuid"])
         if self.settings.get("selected_account") == a["uuid"]:
             self.settings["selected_account"] = self.accounts.items[0]["uuid"] if self.accounts.items else ""

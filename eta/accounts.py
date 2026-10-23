@@ -57,6 +57,22 @@ class AccountStore:
         self.save()
         return acc
 
+    def add_mcru(self, name, uuid_, access_token, client_token, login=""):
+        """An mc-ru.org account (site login → Yggdrasil tokens); replaces an older entry with the same uuid."""
+        self.items = [a for a in self.items if a["uuid"] != uuid_]
+        acc = {"type": "mcru", "name": name, "uuid": uuid_, "access_token": access_token,
+               "client_token": client_token, "login": login or name, "created": time.time(), "last_used": 0}
+        self.items.append(acc)
+        self.save()
+        return acc
+
+    def update(self, uid, **kw):
+        a = self.get(uid)
+        if a:
+            a.update(kw)
+            self.save()
+        return a
+
     def remove(self, uid):
         self.items = [a for a in self.items if a["uuid"] != uid]
         self.save()
