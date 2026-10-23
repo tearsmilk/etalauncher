@@ -150,6 +150,17 @@ for (const mode of ["Light", "Dark"]) {
     const mc = al("VERTICAL", {name: "Text", gap: 0}); mc.appendChild(txt(n, {family: SERIF, size: 15})); mc.appendChild(txt(v, {size: 11, color: "muted"})); m.appendChild(mc); rec.appendChild(m);
   }
   b.appendChild(rec);
+  // Серверы сообщества (eta/ui.py HomePage.render_servers + MiniServerCard): до 4 компактных карточек и «Все серверы →»
+  b.appendChild(txt("СЕРВЕРЫ СООБЩЕСТВА", {size: 10, style: "Semi Bold", color: "muted"}));
+  const srv = al("HORIZONTAL", {name: "Servers", gap: 12});
+  for (const [n, st, motd, c1, c2] of [["Лобби", "● 42/200 онлайн · 38 мс", "Добро пожаловать на mc-ru.org", "#5DAFC4", "#3B8A9F"], ["Ферма", "● 7/50 онлайн · 51 мс", "Выживание 1.20.1, без грифа", "#8BC34A", "#5E9A2E"], ["Креатив", "● офлайн", "Стройки и ивенты", "#D97757", "#C6613F"]]) {
+    const m = al("HORIZONTAL", {name: n, gap: 10, pad: [8, 10, 8, 10], radius: 12, fill: "card", stroke: "border", align: "CENTER"}); m.resize(300, 64); m.primaryAxisSizingMode = "FIXED";
+    m.appendChild(blockIcon(40, c1, c2, n[0]));
+    const mc = al("VERTICAL", {name: "Text", gap: 0}); mc.appendChild(txt(n, {family: SERIF, size: 15})); mc.appendChild(txt(st, {size: 11, color: st.includes("офлайн") ? "muted" : "accent"})); mc.appendChild(txt(motd, {size: 11, color: "muted"})); mc.layoutGrow = 1; m.appendChild(mc);
+    m.appendChild(btn("▶  Играть", "accent")); srv.appendChild(m);
+  }
+  b.appendChild(srv);
+  b.appendChild(txt("Все серверы →", {size: 12, color: "accent"}));
   b.appendChild(txt("НОВОСТИ ЛАУНЧЕРА", {size: 10, style: "Semi Bold", color: "muted"}));
   const nw = al("HORIZONTAL", {name: "News", gap: 12});
   for (const [t, d] of [["Modrinth подключён", "Сборки ставятся в один клик со всеми модами."], ["Своё оформление", "Акцент, фон и стекло — в Настройках."], ["Оффлайн-аккаунты", "Играйте с любым ником."]]) {

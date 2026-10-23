@@ -361,6 +361,24 @@ class HomePage(QScrollArea):
         self.recent = QHBoxLayout()
         self.recent.setSpacing(12)
         self.lay.addLayout(self.recent)
+        self.servers_head = label("СЕРВЕРЫ СООБЩЕСТВА", "Section")
+        self.lay.addWidget(self.servers_head)
+        self.servers_box = QWidget()
+        sv = QVBoxLayout(self.servers_box)
+        sv.setContentsMargins(0, 0, 0, 0)
+        sv.setSpacing(8)
+        self.servers_row = QHBoxLayout()
+        self.servers_row.setSpacing(12)
+        sv.addLayout(self.servers_row)
+        more = QPushButton("Все серверы →")
+        more.setObjectName("Link")
+        more.setCursor(Qt.PointingHandCursor)
+        more.clicked.connect(lambda: self.win.go("servers"))
+        sv.addWidget(more, 0, Qt.AlignLeft)
+        self.lay.addWidget(self.servers_box)
+        self.server_cards = {}
+        self.servers_head.hide()
+        self.servers_box.hide()
         self.lay.addWidget(label("НОВОСТИ ЛАУНЧЕРА", "Section"))
         news = QHBoxLayout()
         news.setSpacing(12)
@@ -434,6 +452,82 @@ class HomePage(QScrollArea):
         if not self.win.instances.items:
             self.recent.addWidget(label("Пока пусто — загляните в «Сборки».", "Hint"))
         self.recent.addStretch(1)
+        self.render_servers(self.win.servers.items)
+        self.win.servers.reload(min_age=60)
+
+    def bind_servers(self):
+        self.win.servers.updated.connect(self.render_servers)
+        self.win.servers.status.connect(self._server_status)
+
+    def render_servers(self, items):
+        clear_layout(self.servers_row)
+        self.server_cards = {}
+        items = list(items or [])[:4]
+        self.servers_head.setVisible(bool(items))
+        self.servers_box.setVisible(bool(items))
+        for srv in items:
+            card = MiniServerCard(self.win, srv)
+            key = servers.address(srv)
+            self.server_cards[key] = card
+            if key in self.win.servers.statuses:
+                card.set_status(self.win.servers.statuses[key])
+            self.servers_row.addWidget(card)
+        self.servers_row.addStretch(1)
+
+    def _server_status(self, key, st):
+        card = self.server_cards.get(key)
+        if card:
+            card.set_status(st)
+
+
+class MiniServerCard(QFrame):
+    """Compact server card for the home page: icon, name, online line, MOTD, «Играть»."""
+
+    def __init__(self, win, srv):
+        super().__init__()
+        self.win = win
+        self.srv = srv
+        self.setObjectName("Box")
+        self.setMinimumWidth(260)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(10)
+        self.icon = QLabel()
+        self.icon.setFixedSize(40, 40)
+        set_icon(win, self.icon, srv.get("icon_url"), srv["name"], 40)
+        lay.addWidget(self.icon, 0, Qt.AlignTop)
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        col.addWidget(label(srv["name"], "CardTitle"))
+        self.status = label("● …", "Hint")
+        col.addWidget(self.status)
+        motd = servers.motd_plain(srv.get("motd", "")).replace("\n", " ").strip()
+        m = label("", "Muted")
+        m.setText(m.fontMetrics().elidedText(motd, Qt.ElideRight, 200))
+        m.setToolTip(motd)
+        col.addWidget(m)
+        lay.addLayout(col, 1)
+        play = QPushButton("Играть")
+        play.setObjectName("Accent")
+        play.setIcon(icons.icon("play", "#FFFFFF", "#FFFFFF"))
+        play.clicked.connect(lambda: self.win.servers.play(self.srv))
+        lay.addWidget(play, 0, Qt.AlignVCenter)
+
+    def set_status(self, st):
+        if st is None:
+            self.status.setText("● офлайн")
+            name = "Hint"
+        else:
+            self.status.setText(f"● {st['online']}/{st['max']} онлайн · {st['latency_ms']} мс")
+            name = "Ok"
+            if not self.srv.get("icon_url") and st.get("favicon"):
+                from PySide6.QtGui import QPixmap
+                pix = QPixmap()
+                if pix.loadFromData(st["favicon"]) and not pix.isNull():
+                    self.icon.setPixmap(rounded(pix, 40))
+        self.status.setObjectName(name)
+        self.status.style().unpolish(self.status)
+        self.status.style().polish(self.status)
 
 
 # ---------------------------------------------------------------- modpacks
@@ -2050,7 +2144,7 @@ class ServerCard(QFrame):
         play.setObjectName("Accent")
         play.setIcon(icons.icon("play", "#FFFFFF", "#FFFFFF"))
         play.setMinimumWidth(110)
-        play.clicked.connect(lambda: self.page.play(self.srv))
+        play.clicked.connect(lambda: self.win.servers.play(self.srv))
         lay.addWidget(play, 0, Qt.AlignVCenter)
 
     def copy_address(self):
@@ -2135,6 +2229,61 @@ class PickInstanceDialog(QDialog):
         self.win.go("modpacks")
 
 
+class ServerList(QObject):
+    """Community servers shared by the home page and «Серверы»: one fetch, one ping per server."""
+    updated = Signal(list)
+    status = Signal(str, object)
+    failed = Signal(str)
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.items = servers.cached()
+        self.statuses = {}
+        self.loading = False
+        self.fetched_at = 0.0
+
+    def reload(self, min_age=0.0):
+        if self.loading or (min_age and time.monotonic() - self.fetched_at < min_age):
+            return
+        self.loading = True
+        self.win.runner.run(servers.fetch, self._fetched, self._failed)
+
+    def _fetched(self, items):
+        self.loading = False
+        self.fetched_at = time.monotonic()
+        self.items = items
+        self.updated.emit(items)
+        self.ping_all()
+
+    def _failed(self, e):
+        self.loading = False
+        self.failed.emit(str(e))
+        self.ping_all()
+
+    def ping_all(self):
+        for srv in self.items:
+            self.ping(srv)
+
+    def ping(self, srv):
+        key = servers.address(srv)
+
+        def done(st):
+            self.statuses[key] = st
+            self.status.emit(key, st)
+
+        self.win.runner.run(lambda: servers.ping(srv["ip"], srv["port"]), done, lambda e: done(None))
+
+    def play(self, srv):
+        inst = self.win.instance()
+        if not inst or not servers.version_matches(inst["mc_version"], srv.get("version")):
+            dlg = PickInstanceDialog(self.win, srv)
+            if not dlg.exec() or not dlg.result_inst:
+                return
+            inst = dlg.result_inst
+        self.win.launch(inst, server={"ip": srv["ip"], "port": srv["port"], "name": srv["name"]})
+
+
 class ServersPage(QScrollArea):
     def __init__(self, win):
         super().__init__()
@@ -2143,6 +2292,9 @@ class ServersPage(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
         self.cards = {}
         self.loaded = False
+        win.servers.updated.connect(self._fetched)
+        win.servers.failed.connect(self._failed)
+        win.servers.status.connect(self._status)
         body = QWidget()
         body.setObjectName("Page")
         lay = QVBoxLayout(body)
@@ -2175,10 +2327,9 @@ class ServersPage(QScrollArea):
         self.loaded = True
         self.refresh_btn.setEnabled(False)
         self.note.setText("Загружаем список…")
-        cached = servers.cached()
-        if cached:
-            self.render(cached)
-        self.win.runner.run(servers.fetch, self._fetched, self._failed)
+        if self.win.servers.items:
+            self.render(self.win.servers.items)
+        self.win.servers.reload()
 
     def _fetched(self, items):
         self.refresh_btn.setEnabled(True)
@@ -2192,6 +2343,11 @@ class ServersPage(QScrollArea):
         else:
             self.note.setText(f"Не удалось загрузить серверы: {e}")
 
+    def _status(self, key, st):
+        card = self.cards.get(key)
+        if card:
+            card.set_status(st)
+
     def render(self, items):
         clear_layout(self.list)
         self.cards = {}
@@ -2201,26 +2357,10 @@ class ServersPage(QScrollArea):
         for srv in items:
             card = ServerCard(self, srv)
             self.list.addWidget(card)
-            self.cards[id(card)] = card
-            self._ping(card)
-
-    def _ping(self, card):
-        srv = card.srv
-
-        def done(st, card=card):
-            if card in self.cards.values():
-                card.set_status(st)
-
-        self.win.runner.run(lambda: servers.ping(srv["ip"], srv["port"]), done, lambda e, card=card: done(None, card))
-
-    def play(self, srv):
-        inst = self.win.instance()
-        if not inst or not servers.version_matches(inst["mc_version"], srv.get("version")):
-            dlg = PickInstanceDialog(self.win, srv)
-            if not dlg.exec() or not dlg.result_inst:
-                return
-            inst = dlg.result_inst
-        self.win.launch(inst, server={"ip": srv["ip"], "port": srv["port"], "name": srv["name"]})
+            key = servers.address(srv)
+            self.cards[key] = card
+            if key in self.win.servers.statuses:
+                card.set_status(self.win.servers.statuses[key])
 
 
 # ---------------------------------------------------------------- settings
@@ -2913,12 +3053,14 @@ class MainWindow(QMainWindow):
         self.rail_lay.setSpacing(6)
         self.pages = QStackedWidget()
         self.root.addWidget(shell)
+        self.servers = ServerList(self)
         self.home = HomePage(self)
         self.modpacks = ModpacksPage(self)
         self.accounts_page = AccountsPage(self)
         self.settings_page = SettingsPage(self)
         self._mods_page = ModsPage(self)
         self.servers_page = ServersPage(self)
+        self.home.bind_servers()
         for p in (self.home, self.modpacks, self.accounts_page, self.settings_page, self._mods_page,
                   self.servers_page):
             self.pages.addWidget(p)
