@@ -6,6 +6,8 @@ Set-Location (Join-Path $PSScriptRoot "..")
 $py = if ($env:PYTHON) { $env:PYTHON } else { "python" }
 if (-not $env:APP_VERSION) { $env:APP_VERSION = & $py -c "import eta; print(eta.__version__)" }
 $version = $env:APP_VERSION
+# bake the CurseForge key (GitHub secret ETA_CURSEFORGE_KEY) into the exe; eta/_keys.py is gitignored
+& $py -c "import json,os; open('eta/_keys.py','w',encoding='utf-8').write('CURSEFORGE_KEY = ' + json.dumps(os.environ.get('ETA_CURSEFORGE_KEY','')) + '\n')"
 
 if (Test-Path build) { Remove-Item build -Recurse -Force }
 if (Test-Path dist) { Remove-Item dist -Recurse -Force }

@@ -1,4 +1,5 @@
 build/
 dist/
+eta/_keys.py
 __pycache__/
 *.pyc

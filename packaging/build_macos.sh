@@ -5,6 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VERSION="${APP_VERSION:-$(python3 -c 'import eta; print(eta.__version__)')}"
 export APP_VERSION="$VERSION"
+# bake the CurseForge key (GitHub secret ETA_CURSEFORGE_KEY) into the bundle; eta/_keys.py is gitignored
+printf 'CURSEFORGE_KEY = %s\n' "$(python3 -c 'import json,os; print(json.dumps(os.environ.get("ETA_CURSEFORGE_KEY","")))')" > eta/_keys.py
 export MACOSX_DEPLOYMENT_TARGET=11.0
 PY="${PYTHON:-python3}"
 

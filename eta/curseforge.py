@@ -30,9 +30,19 @@ RELEASE_TYPES = {1: "release", 2: "beta", 3: "alpha"}
 _SETTINGS = {}
 
 
+def _baked_key():
+    # eta/_keys.py is written by the build scripts from ETA_CURSEFORGE_KEY and never committed
+    try:
+        from . import _keys
+        return getattr(_keys, "CURSEFORGE_KEY", "") or ""
+    except ImportError:
+        return ""
+
+
 def api_key(settings=None):
     s = settings if settings is not None else _SETTINGS
-    return (os.environ.get("ETA_CURSEFORGE_KEY") or (s.get("curseforge_key") if hasattr(s, "get") else "") or "").strip()
+    return (os.environ.get("ETA_CURSEFORGE_KEY") or (s.get("curseforge_key") if hasattr(s, "get") else "")
+            or _baked_key()).strip()
 
 
 def available(settings=None):
