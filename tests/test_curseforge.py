@@ -5,6 +5,7 @@ import hashlib
 import http.server
 import io
 import json
+import os
 import tempfile
 import threading
 import zipfile
@@ -143,6 +144,9 @@ def run(tmp=None):
     saved = cf.API, cf.EDGE
     cf.API, cf.EDGE = base + "/v1", base + "/files"
     settings = {"curseforge_key": "test-key"}
+    # CI bakes a real key via ETA_CURSEFORGE_KEY / eta/_keys.py — the "no key" checks must not see it
+    env_key, baked = os.environ.pop("ETA_CURSEFORGE_KEY", None), cf._baked_key
+    cf._baked_key = lambda: ""
     try:
         assert not cf.available({"curseforge_key": ""}) and cf.available(settings)
         try:
@@ -201,6 +205,9 @@ def run(tmp=None):
         return {"calls": len(FakeCurseForge.calls)}
     finally:
         cf.API, cf.EDGE = saved
+        cf._baked_key = baked
+        if env_key is not None:
+            os.environ["ETA_CURSEFORGE_KEY"] = env_key
         httpd.shutdown()
 
 
