@@ -81,6 +81,13 @@ def selftest():
     win.go("servers")
     app.processEvents()
     assert win.servers_page.list.count() >= 2 and win.nav["servers"].isChecked()
+    # the home page shows the same cached servers in «Серверы сообщества» (max 4) and hides the block when empty
+    win.go("home")
+    app.processEvents()
+    assert len(win.home.server_cards) >= 2 and not win.home.servers_head.isHidden()
+    win.home.render_servers([])
+    assert win.home.servers_head.isHidden() and win.home.servers_box.isHidden() and not win.home.server_cards
+    win.home.render_servers(win.servers.items)
     win.home.show_update({"version": "9.9.9", "url": "", "newer": True})
     assert win.home.update_bar.isVisible() or not win.home.isVisible()
     win.home._skip_update()
