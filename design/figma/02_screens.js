@@ -1,5 +1,6 @@
 // Эта (Eta) — Screens page: Загрузка, Главная (Light / Dark), Главная — стекло (панель справа, свёрнута), Сборки —
-// каталог, Мои сборки, Аккаунты, Новый аккаунт (оффлайн / mc-ru.org / Microsoft), Запуск (подготовка / игра запущена), Настройки (с «Оформлением»).
+// каталог, Мои сборки, Аккаунты, Новый аккаунт (оффлайн / mc-ru.org / Microsoft), Запуск (подготовка / игра запущена), Настройки (с «Оформлением»),
+// Серверы (список серверов сообщества с mc-ru.org: иконка, адрес, версия, MOTD, онлайн, «Играть»).
 // Run after 01_ui_kit.js.
 let page = figma.root.children.find(p => p.name === "Screens");
 if (!page) { page = figma.createPage(); page.name = "Screens"; }
@@ -89,7 +90,7 @@ function btn(t, kind = "default") {
 function sidebar(active) {
   const s = al("VERTICAL", {name: "Sidebar", gap: 4, pad: [18, 12, 14, 12], fill: "sidebar"}); s.resize(210, 820); s.primaryAxisSizingMode = "FIXED"; s.counterAxisSizingMode = "FIXED";
   const brand = al("HORIZONTAL", {name: "Brand", gap: 6, align: "CENTER"}); brand.appendChild(txt("η", {family: SERIF, style: SERIF_I, size: 30, color: "accent"})); brand.appendChild(txt("Эта", {family: SERIF, size: 17})); s.appendChild(brand);
-  for (const [i, t] of ["⌂  Главная", "▣  Сборки", "☺  Аккаунты", "⚙  Настройки"].entries()) { const b = al("HORIZONTAL", {name: t, pad: [7, 10, 7, 10], radius: 7, fill: i === active ? "selected" : null}); b.resize(186, 30); b.primaryAxisSizingMode = "FIXED"; b.appendChild(txt(t)); s.appendChild(b); }
+  for (const [i, t] of ["⌂  Главная", "▣  Сборки", "☺  Аккаунты", "⚙  Настройки", "▤  Серверы"].entries()) { const b = al("HORIZONTAL", {name: t, pad: [7, 10, 7, 10], radius: 7, fill: i === active ? "selected" : null}); b.resize(186, 30); b.primaryAxisSizingMode = "FIXED"; b.appendChild(txt(t)); s.appendChild(b); }
   const sp = figma.createFrame(); sp.fills = []; sp.resize(10, 10); sp.layoutGrow = 1; s.appendChild(sp);
   const chip = al("HORIZONTAL", {name: "Account chip", pad: [6, 8, 6, 8], gap: 8, radius: 12, fill: "card", stroke: "border"}); chip.resize(186, 48); chip.primaryAxisSizingMode = "FIXED";
   chip.appendChild(head(30)); const cc = al("VERTICAL", {name: "Text", gap: 0}); cc.appendChild(txt("Hoka_Neko", {style: "Semi Bold"})); cc.appendChild(txt("Оффлайн", {size: 11, color: "muted"})); chip.appendChild(cc); s.appendChild(chip);
@@ -119,7 +120,7 @@ function heroCard(dark, w = 1006, accent = "accent") {
 function rail() {
   const r = al("VERTICAL", {name: "Rail", gap: 10, pad: [16, 10, 14, 10], fill: "sidebar", align: "CENTER"}); r.resize(56, 820); r.primaryAxisSizingMode = "FIXED"; r.counterAxisSizingMode = "FIXED";
   r.appendChild(txt("η", {family: SERIF, style: SERIF_I, size: 26, color: "accent"})); r.appendChild(txt("»", {color: "muted"}));
-  for (const [i, t] of ["⌂", "▣", "☺", "⚙"].entries()) { const b = al("HORIZONTAL", {name: t, pad: [6, 9, 6, 9], radius: 8, fill: i === 0 ? "selected" : null}); b.appendChild(txt(t)); r.appendChild(b); }
+  for (const [i, t] of ["⌂", "▣", "☺", "⚙", "▤"].entries()) { const b = al("HORIZONTAL", {name: t, pad: [6, 9, 6, 9], radius: 8, fill: i === 0 ? "selected" : null}); b.appendChild(txt(t)); r.appendChild(b); }
   const sp = figma.createFrame(); sp.fills = []; sp.resize(10, 10); sp.layoutGrow = 1; r.appendChild(sp); r.appendChild(head(30));
   return r;
 }
@@ -326,4 +327,21 @@ for (const [name, stage, pct, detail, running] of [["Запуск — подго
   sec("⤓  Загрузки"); row("Источник по умолчанию", "Modrinth"); row("Одновременных загрузок", "6");
   place(f);
 }
+// Серверы — список серверов сообщества (eta/ui.py ServersPage; данные с mc-ru.org/api/servers, онлайн по Server List Ping)
+{
+  const [f, b] = shell("Серверы", 4);
+  const hd = al("HORIZONTAL", {name: "Head", align: "CENTER"}); hd.resize(1006, 44); hd.primaryAxisSizingMode = "FIXED"; hd.primaryAxisAlignItems = "SPACE_BETWEEN";
+  const tt = al("VERTICAL", {name: "Title", gap: 2}); tt.appendChild(txt("Серверы сообщества", {family: SERIF, size: 28})); tt.appendChild(txt("mc-ru.org", {color: "muted"})); hd.appendChild(tt); hd.appendChild(btn("↻  Обновить")); b.appendChild(hd);
+  for (const [n, addr, ver, motd, st, ok, col] of [["Ферма", "play.mc-ru.org", "1.20.1", "Ферма — выживание без гриферов", "● 12/100 онлайн · 45 мс", true, "#7BA05B"], ["Лобби", "lobby.mc-ru.org:25566", "1.21", "Мини-игры, бедварс, паркур", "● 3/50 онлайн · 61 мс", true, "#5DAFC4"], ["Техно", "tech.mc-ru.org", "1.19.2", "Create + Applied Energistics", "● офлайн", false, "#C08A2A"]]) {
+    const c = al("HORIZONTAL", {name: n, gap: 14, pad: [12, 14, 12, 14], radius: 14, fill: "card", stroke: "border", align: "CENTER"}); c.resize(1006, 40); c.primaryAxisSizingMode = "FIXED";
+    c.appendChild(blockIcon(64, col, col, n[0]));
+    const t = al("VERTICAL", {name: "Text", gap: 4}); t.layoutGrow = 1;
+    const r1 = al("HORIZONTAL", {name: "Name", gap: 8, align: "CENTER"}); r1.appendChild(txt(n, {family: SERIF, size: 16})); const tg = al("HORIZONTAL", {name: "Tag", pad: [1, 8, 1, 8], radius: 9, stroke: "border"}); tg.appendChild(txt(ver, {size: 11, color: "muted"})); r1.appendChild(tg); t.appendChild(r1);
+    const r2 = al("HORIZONTAL", {name: "Address", gap: 6, align: "CENTER"}); r2.appendChild(txt(addr, {color: "muted"})); r2.appendChild(btn("Копировать")); t.appendChild(r2);
+    t.appendChild(txt(motd)); t.appendChild(txt(st, {size: 11, color: ok ? "done" : "muted"})); c.appendChild(t);
+    c.appendChild(btn("▶  Играть", "accent")); b.appendChild(c);
+  }
+  place(f);
+}
+
 return {screens: page.children.length};

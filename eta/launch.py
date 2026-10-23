@@ -65,6 +65,15 @@ JAVA_PLATFORM = {("osx", "x86_64"): "mac-os", ("osx", "arm64"): "mac-os-arm64", 
                  ("windows", "x86"): "windows-x86", ("windows", "arm64"): "windows-arm64"}.get((OS_NAME, ARCH), "linux")
 
 
+def supports_quick_play(mc_version):
+    """--quickPlayMultiplayer exists since 1.20; snapshots and odd ids count as new."""
+    parts = str(mc_version or "").split(".")
+    if not all(p.isdigit() for p in parts):
+        return True
+    nums = [int(p) for p in parts]
+    return nums >= [1, 20]
+
+
 def allowed(rules, features=None):
     """Mojang's rule lists: the last matching rule wins; no rules = allowed."""
     if not rules:
@@ -588,8 +597,10 @@ class Game:
 
     # -- command line
     def command(self, v, java, game_dir, acc, settings, natives_dir, classpath, log_arg=None, inst=None,
-                injector=None):
+                injector=None, server=None):
         inst = inst or {}
+        quick_play = bool(server) and supports_quick_play(inst.get("mc_version") or v.get("id", ""))
+        server_addr = f"{server['ip']}:{server.get('port') or 25565}" if server else ""
         mcru_acc = acc.get("type") == "mcru"
         msa_acc = acc.get("type") == "msa"
         if mcru_acc:
@@ -602,7 +613,7 @@ class Game:
         fullscreen = bool(settings.get("fullscreen"))
         features = {"is_demo_user": False, "has_custom_resolution": bool(w and h) and not fullscreen,
                     "has_quick_plays_support": False, "is_quick_play_singleplayer": False,
-                    "is_quick_play_multiplayer": False, "is_quick_play_realms": False}
+                    "is_quick_play_multiplayer": quick_play, "is_quick_play_realms": False}
         ai = v.get("assetIndex") or {}
         assets_root = self.root / "assets"
         virtual = assets_root / "virtual" / ai.get("id", "legacy")
@@ -619,7 +630,7 @@ class Game:
             "clientid": msa.CLIENT_ID if msa_acc else "", "auth_xuid": (acc.get("xuid") or "") if msa_acc else "",
             "resolution_width": str(w or 854), "resolution_height": str(h or 480),
             "game_assets": str(virtual if virtual.is_dir() else assets_root), "quickPlayPath": "", "quickPlaySingleplayer": "",
-            "quickPlayMultiplayer": "", "quickPlayRealms": "",
+            "quickPlayMultiplayer": server_addr if quick_play else "", "quickPlayRealms": "",
         }
 
         def sub(s):
@@ -645,6 +656,8 @@ class Game:
             game = [sub(x) for x in (v.get("minecraftArguments") or "").split()]
         if fullscreen:
             game.append("--fullscreen")
+        if server and not quick_play:   # before 1.20 the client took --server/--port
+            game += ["--server", str(server["ip"]), "--port", str(server.get("port") or 25565)]
         mem = int(inst.get("memory_mb") or settings.get("memory_mb") or 4096)
         cmd = [java, f"-Xmx{mem}M"]
         if mcru_acc and injector:
@@ -658,7 +671,7 @@ class Game:
         cmd += jvm + [v["mainClass"]] + game
         return cmd
 
-    def prepare(self, inst, acc, settings, inst_dir):
+    def prepare(self, inst, acc, settings, inst_dir, server=None):
         """Everything needed to start this instance. Returns {cmd, cwd, env, version, java, loader_version}."""
         mc = inst["mc_version"]
         loader = inst.get("loader") or "vanilla"
@@ -698,7 +711,7 @@ class Game:
             out["account"] = msa.ensure_session(acc)
             self._check()
         self._p("launch", 0, 1, "Собираем команду запуска…")
-        cmd = self.command(v, java, game_dir, acc, settings, natives_dir, cp, log_arg, inst, injector)
+        cmd = self.command(v, java, game_dir, acc, settings, natives_dir, cp, log_arg, inst, injector, server)
         return {"cmd": cmd, "cwd": str(game_dir), "env": clean_env(), "version": v["id"], "java": java,
                 "loader_version": lv, "started": time.time(), **out}
 

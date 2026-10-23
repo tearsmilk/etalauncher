@@ -50,7 +50,8 @@ hide with «Фильтры».
 | Сборки → Каталог | Modrinth-like browser: search, sources (Modrinth / CurseForge), loader chips (Fabric / Forge / NeoForge / Quilt), game version, categories, sort, «show more»; project page (description, versions); install dialog → creates an instance |
 | Сборки → Мои сборки | Instance cards: play, select, open folder, rename, copy, delete; «Создать сборку» (name, game version, loader) |
 | Аккаунты | Offline accounts (nickname 3–16 `[A-Za-z0-9_]`, UUID = `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)` like vanilla offline servers), procedural pixel heads, select / copy UUID / delete; **mc-ru.org** accounts (site login, real skin head, see below); **Microsoft** accounts (device-code login, see below) |
-| Настройки | Оформление (see above), game folder, memory slider (system RAM), Java (auto-detect / browse), JVM args, window size, full screen, theme, close on launch, console, default source, parallel downloads |
+| Настройки | Оформление (see above), game folder, memory slider (system RAM), Java (auto-detect / browse), JVM args, window size, full screen, theme, close on launch, console, update check, default source, parallel downloads |
+| Серверы | Community servers from mc-ru.org (bottom of the side menu): icon, address + copy, version, MOTD with `§` colours, live online/latency via the Server List Ping, **Играть** joins the server straight away (see below) |
 
 ## Аккаунт mc-ru.org
 
@@ -107,11 +108,32 @@ refresh token. В команду идут `--accessToken <mc_token> --userType m
 Файлы: `eta/msa.py`, `launch.py` (`prepare` → `msa.ensure_session`, `command`), `tests/test_msa.py` (локальный фейк
 всей цепочки).
 
+## Серверы
+
+Пункт «Серверы» внизу бокового меню (Ctrl+4) показывает список серверов сообщества: лаунчер берёт его с
+`https://mc-ru.org/api/servers` (добавляет админ в кабинете сайта `mc-ru.org/admin`: название, адрес, версия, MOTD,
+иконка) и кэширует в `servers.json`, чтобы страница открывалась и без сети. Для каждого сервера в фоне делается
+Server List Ping (handshake → status, протокол современных версий) — онлайн, лимит, задержка; если у сервера нет
+иконки на сайте, берётся favicon из ответа. MOTD рисуется с цветами `§`.
+
+«Играть» запускает выбранную сборку сразу на сервер: для 1.20+ через `--quickPlayMultiplayer ip:port`, для старых
+версий через `--server ip --port port`. Если версия выбранной сборки не совпадает с версией сервера, лаунчер предложит
+выбрать другую (подходящие — первыми) или открыть каталог, отфильтрованный по версии. В Discord статус становится
+«Играет на <сервер>». Файлы: `eta/servers.py`, `launch.py` (`supports_quick_play`, `command(server=…)`),
+`tests/test_servers.py` (фейковый сервер Minecraft на сокете).
+
+## Обновления
+
+При старте (не чаще раза в 6 часов, выключается в Настройки → Лаунчер) лаунчер спрашивает
+`https://mc-ru.org/api/launcher/version`; если версия новее `eta.__version__`, на главной появляется полоска
+«Доступна версия X — Скачать» (ссылка на `.exe` или `.dmg` под текущую систему), ✕ прячет её до следующей версии.
+«Проверить сейчас» — в настройках. Файл: `eta/updates.py`.
+
 ## Files
 
 `eta/accounts.py` · `eta/instances.py` · `eta/catalog.py` (DemoProvider) · `eta/modrinth.py` (ModrinthProvider,
-`.mrpack` install) · `eta/net.py` (HTTPS via certifi, background runner, icon cache) · `eta/mcru.py` (mc-ru.org) · `eta/msa.py` (Microsoft) · `eta/launch.py` (Minecraft, Java, loaders,
-command line) · `eta/backgrounds.py` · `eta/widgets.py` (pixel heads, block icons, banner) · `eta/ui.py`.
+`.mrpack` install) · `eta/net.py` (HTTPS via certifi, background runner, icon cache) · `eta/mcru.py` (mc-ru.org) · `eta/msa.py` (Microsoft) · `eta/servers.py` (server list, ping, MOTD) ·
+`eta/updates.py` · `eta/launch.py` (Minecraft, Java, loaders, command line) · `eta/backgrounds.py` · `eta/widgets.py` (pixel heads, block icons, banner) · `eta/ui.py`.
 Data lives in `~/Library/Application Support/Eta` on macOS, `%APPDATA%\Eta` on Windows (`settings.json`,
 `accounts.json`, `instances.json`).
 
@@ -123,6 +145,7 @@ pip install -r requirements.txt
 python run.py              # the launcher
 python run.py --selftest   # headless checks (offline UUID, validation, catalog, offline .mrpack install, a full launch — version, Java, loader, assets — from a local server with a fake java, mc-ru.org login against a fake Yggdrasil, glass theme, every page and dialog)
 python -m tests.test_mcru  # only the mc-ru.org part
+python -m tests.test_servers  # server list ping, MOTD, quick play, update check
 ```
 
 ## Design

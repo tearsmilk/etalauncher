@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
                                QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, LOGO, __version__, backgrounds, curseforge, discord_rpc, icons, launch, mcru, msa, net, theme
+from . import (APP_NAME, LOGO, __version__, backgrounds, curseforge, discord_rpc, icons, launch, mcru, msa, net,
+               servers, theme, updates)
 from .accounts import AccountStore, offline_uuid, validate
 from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
@@ -333,6 +334,27 @@ class HomePage(QScrollArea):
         self.lay.setSpacing(16)
         self.greet = label("", "Title")
         self.lay.addWidget(self.greet)
+        self.update_bar = QFrame()
+        self.update_bar.setObjectName("Box")
+        ub = QHBoxLayout(self.update_bar)
+        ub.setContentsMargins(14, 8, 10, 8)
+        ub.setSpacing(10)
+        self.update_text = label("", "Muted")
+        ub.addWidget(self.update_text, 1)
+        self.update_btn = QPushButton("Скачать")
+        self.update_btn.setObjectName("Accent")
+        self.update_btn.setIcon(icons.icon("download", "#FFFFFF", "#FFFFFF"))
+        self.update_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(
+            (getattr(self, "update_res", None) or {}).get("url") or mcru.SITE + "/launcher")))
+        ub.addWidget(self.update_btn)
+        skip = QToolButton()
+        skip.setObjectName("CollapseBtn")
+        skip.setText("✕")
+        skip.setToolTip("Скрыть")
+        skip.clicked.connect(self._skip_update)
+        ub.addWidget(skip)
+        self.update_bar.hide()
+        self.lay.addWidget(self.update_bar)
         self.hero = Hero(win)
         self.lay.addWidget(self.hero)
         self.lay.addWidget(label("НЕДАВНИЕ СБОРКИ", "Section"))
@@ -366,6 +388,21 @@ class HomePage(QScrollArea):
         self.lay.addLayout(news)
         self.lay.addStretch(1)
         self.setWidget(body)
+
+    def show_update(self, res):
+        self.update_res = res
+        if not res:
+            self.update_bar.hide()
+            return
+        self.update_text.setText(f"Доступна версия {res['version']} лаунчера (у вас {__version__})")
+        self.update_bar.show()
+
+    def _skip_update(self):
+        res = getattr(self, "update_res", None)
+        if res:
+            self.win.settings["update_skip"] = res["version"]
+            self.win.settings.save()
+        self.update_bar.hide()
 
     def refresh(self):
         acc = self.win.account()
@@ -1591,6 +1628,16 @@ class ModpacksPage(QWidget):
         grid.setColumnStretch(cols, 1)
         self.mine_scroll.setWidget(body)
 
+    def filter_version(self, ver):
+        """Catalog filtered by a game version (exact item, else the closest 'x.y' one)."""
+        self.show_tab("catalog")
+        k = self.f_version.findData(ver)
+        if k < 0 and ver:
+            base = ".".join(ver.split(".")[:2])
+            k = next((i for i in range(self.f_version.count())
+                      if str(self.f_version.itemData(i) or "").startswith(base)), -1)
+        self.f_version.setCurrentIndex(max(0, k))
+
     def show_tab(self, key):
         self.tab_btns[key].setChecked(True)
         if key == "catalog":
@@ -1954,6 +2001,228 @@ class AccountsPage(QScrollArea):
         self.setWidget(body)
 
 
+# ---------------------------------------------------------------- servers
+
+class ServerCard(QFrame):
+    def __init__(self, page, srv):
+        super().__init__()
+        self.page = page
+        self.win = page.win
+        self.srv = srv
+        self.setObjectName("Box")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(14)
+        self.icon = QLabel()
+        self.icon.setFixedSize(64, 64)
+        set_icon(self.win, self.icon, srv.get("icon_url"), srv["name"], 64)
+        lay.addWidget(self.icon, 0, Qt.AlignTop)
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        top.addWidget(label(srv["name"], "CardTitle"))
+        if srv.get("version"):
+            top.addWidget(tag(srv["version"]))
+        top.addStretch(1)
+        col.addLayout(top)
+        addr = QHBoxLayout()
+        addr.setSpacing(6)
+        a = label(servers.address(srv), "Muted")
+        a.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        addr.addWidget(a)
+        copy = QToolButton()
+        copy.setText("Копировать")
+        copy.setToolTip("Скопировать адрес сервера")
+        copy.clicked.connect(self.copy_address)
+        addr.addWidget(copy)
+        addr.addStretch(1)
+        col.addLayout(addr)
+        self.motd = QLabel()
+        self.motd.setWordWrap(True)
+        self.motd.setTextFormat(Qt.RichText)
+        self.motd.setText(servers.motd_to_rich(srv.get("motd", "")))
+        col.addWidget(self.motd)
+        self.status = label("● …", "Hint")
+        col.addWidget(self.status)
+        lay.addLayout(col, 1)
+        play = QPushButton("Играть")
+        play.setObjectName("Accent")
+        play.setIcon(icons.icon("play", "#FFFFFF", "#FFFFFF"))
+        play.setMinimumWidth(110)
+        play.clicked.connect(lambda: self.page.play(self.srv))
+        lay.addWidget(play, 0, Qt.AlignVCenter)
+
+    def copy_address(self):
+        QApplication.clipboard().setText(servers.address(self.srv))
+        self.status.setText(self.status.text() + "   · адрес скопирован")
+
+    def set_status(self, st):
+        if st is None:
+            self.status.setText("● офлайн")
+            self._style("Hint")
+            return
+        self.status.setText(f"● {st['online']}/{st['max']} онлайн · {st['latency_ms']} мс")
+        self._style("Ok")
+        if not self.srv.get("icon_url") and st.get("favicon"):
+            from PySide6.QtGui import QPixmap
+            pix = QPixmap()
+            if pix.loadFromData(st["favicon"]) and not pix.isNull():
+                self.icon.setPixmap(rounded(pix, 64))
+
+    def _style(self, name):
+        self.status.setObjectName(name)
+        self.status.style().unpolish(self.status)
+        self.status.style().polish(self.status)
+
+
+class PickInstanceDialog(QDialog):
+    """Which instance joins the server: matching versions first."""
+
+    def __init__(self, win, srv):
+        super().__init__(win)
+        self.win = win
+        self.result_inst = None
+        self.setWindowTitle(f"Играть на {srv['name']}")
+        self.setFixedWidth(460)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 18, 22, 18)
+        lay.addWidget(label("Какой сборкой зайти?", "H2"))
+        ver = srv.get("version") or ""
+        lay.addWidget(label(f"Сервер: {ver} — рекомендуется сборка той же версии" if ver else
+                            "Выберите сборку для этого сервера", "Hint", wrap=True))
+        items = sorted(win.instances.items, key=lambda i: (not servers.version_matches(i["mc_version"], ver),
+                                                           -(i.get("last_played") or 0)))
+        box = QVBoxLayout()
+        box.setSpacing(6)
+        for inst in items:
+            b = QPushButton()
+            b.setObjectName("MiniCard")
+            b.setCursor(Qt.PointingHandCursor)
+            h = QHBoxLayout(b)
+            h.setContentsMargins(10, 8, 12, 8)
+            i = QLabel()
+            set_icon(win, i, inst.get("icon_url"), inst["icon"], 32, inst.get("icon_path"))
+            i.setAttribute(Qt.WA_TransparentForMouseEvents)
+            h.addWidget(i)
+            h.addWidget(label(inst["name"], "CardTitle"), 1)
+            h.addWidget(label(f"{LOADERS.get(inst['loader'], '')} {inst['mc_version']}", "Hint"))
+            if servers.version_matches(inst["mc_version"], ver) and ver:
+                h.addWidget(tag("подходит", "#4E8A57"))
+            b.setMinimumHeight(48)
+            b.clicked.connect(lambda _=False, x=inst: self._pick(x))
+            box.addWidget(b)
+        if not items:
+            box.addWidget(label("Сборок пока нет — найдите или создайте сборку.", "Hint", wrap=True))
+        lay.addLayout(box)
+        row = QHBoxLayout()
+        find = QPushButton("Найти сборку")
+        find.clicked.connect(lambda: self._find(ver))
+        row.addWidget(find)
+        row.addStretch(1)
+        c = QPushButton("Отмена")
+        c.clicked.connect(self.reject)
+        row.addWidget(c)
+        lay.addLayout(row)
+
+    def _pick(self, inst):
+        self.result_inst = inst
+        self.accept()
+
+    def _find(self, ver):
+        self.reject()
+        self.win.modpacks.filter_version(ver)
+        self.win.go("modpacks")
+
+
+class ServersPage(QScrollArea):
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.cards = {}
+        self.loaded = False
+        body = QWidget()
+        body.setObjectName("Page")
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(32, 26, 32, 26)
+        lay.setSpacing(12)
+        head = QHBoxLayout()
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        col.addWidget(label("Серверы сообщества", "Title"))
+        col.addWidget(label("mc-ru.org", "Muted"))
+        head.addLayout(col, 1)
+        self.refresh_btn = QPushButton("Обновить")
+        self.refresh_btn.setIcon(ic("refresh"))
+        self.refresh_btn.clicked.connect(self.reload)
+        head.addWidget(self.refresh_btn, 0, Qt.AlignTop)
+        lay.addLayout(head)
+        self.note = label("", "Hint", wrap=True)
+        lay.addWidget(self.note)
+        self.list = QVBoxLayout()
+        self.list.setSpacing(10)
+        lay.addLayout(self.list)
+        lay.addStretch(1)
+        self.setWidget(body)
+
+    def refresh(self):
+        if not self.loaded:
+            self.reload()
+
+    def reload(self):
+        self.loaded = True
+        self.refresh_btn.setEnabled(False)
+        self.note.setText("Загружаем список…")
+        cached = servers.cached()
+        if cached:
+            self.render(cached)
+        self.win.runner.run(servers.fetch, self._fetched, self._failed)
+
+    def _fetched(self, items):
+        self.refresh_btn.setEnabled(True)
+        self.note.setText("")
+        self.render(items)
+
+    def _failed(self, e):
+        self.refresh_btn.setEnabled(True)
+        if self.cards:
+            self.note.setText(f"Показан сохранённый список — сайт недоступен: {e}")
+        else:
+            self.note.setText(f"Не удалось загрузить серверы: {e}")
+
+    def render(self, items):
+        clear_layout(self.list)
+        self.cards = {}
+        if not items:
+            self.list.addWidget(label("Серверов пока нет — админ добавит их на mc-ru.org/admin", "Hint", wrap=True))
+            return
+        for srv in items:
+            card = ServerCard(self, srv)
+            self.list.addWidget(card)
+            self.cards[id(card)] = card
+            self._ping(card)
+
+    def _ping(self, card):
+        srv = card.srv
+
+        def done(st, card=card):
+            if card in self.cards.values():
+                card.set_status(st)
+
+        self.win.runner.run(lambda: servers.ping(srv["ip"], srv["port"]), done, lambda e, card=card: done(None, card))
+
+    def play(self, srv):
+        inst = self.win.instance()
+        if not inst or not servers.version_matches(inst["mc_version"], srv.get("version")):
+            dlg = PickInstanceDialog(self.win, srv)
+            if not dlg.exec() or not dlg.result_inst:
+                return
+            inst = dlg.result_inst
+        self.win.launch(inst, server={"ip": srv["ip"], "port": srv["port"], "name": srv["name"]})
+
+
 # ---------------------------------------------------------------- settings
 
 def find_java():
@@ -2219,6 +2488,9 @@ class SettingsPage(QScrollArea):
         check("Сворачивать лаунчер, когда игра запущена", "close_on_launch")
         check("Показывать консоль игры", "show_console")
         check("Проверять обновления лаунчера", "check_updates")
+        upd = QPushButton("Проверить сейчас")
+        upd.clicked.connect(lambda: self.win.check_updates(force=True))
+        row("Обновления", upd)
 
         section("Загрузки", "download")
         src = QComboBox()
@@ -2370,11 +2642,12 @@ class LaunchDialog(QDialog):
     SPAN = {"version": (0, 3), "java": (3, 25), "loader": (25, 38), "libraries": (38, 55), "assets": (55, 92),
             "auth": (92, 97), "launch": (97, 100)}
 
-    def __init__(self, win, inst, acc):
+    def __init__(self, win, inst, acc, server=None):
         super().__init__(win)
         self.win = win
         self.inst = inst
         self.acc = acc
+        self.server = server
         self.setWindowTitle(f"Запуск — {inst['name']}")
         self.setMinimumWidth(520)
         lay = QVBoxLayout(self)
@@ -2385,7 +2658,8 @@ class LaunchDialog(QDialog):
         head.addWidget(i)
         col = QVBoxLayout()
         col.addWidget(label(inst["name"], "H2"))
-        col.addWidget(label(f"{describe(inst)} · {acc['name']}", "Muted"))
+        col.addWidget(label(f"{describe(inst)} · {acc['name']}" + (f" · сервер {server['name']}" if server else ""),
+                            "Muted"))
         head.addLayout(col, 1)
         lay.addLayout(head)
         self.stage = label("Готовим игру…", "H3")
@@ -2435,7 +2709,7 @@ class LaunchDialog(QDialog):
         def job():
             g = launch.Game(s.game_dir(), progress=self.progress.changed.emit, cancel=lambda: self.cancelled,
                             log=self.progress.logged.emit, workers=int(s.get("parallel_downloads", 6)))
-            return g.prepare(inst, acc, s, inst_dir)
+            return g.prepare(inst, acc, s, inst_dir, server)
 
         win.runner.run(job, self._ready, self._failed)
 
@@ -2479,7 +2753,8 @@ class LaunchDialog(QDialog):
         self.phase = "running"
         self.win.games[self.inst["id"]] = self.game
         self.win.instances.update(self.inst["id"], last_played=time.time())
-        discord_rpc.update(details=self.inst["name"], state="Играет", start_ts=int(time.time()))
+        discord_rpc.update(details=self.inst["name"], start_ts=int(time.time()),
+                           state=f"Играет на {self.server['name']}" if self.server else "Играет")
         self.win.refresh()
         self.bar.setValue(100)
         self.stage.setText("Игра запущена")
@@ -2643,16 +2918,33 @@ class MainWindow(QMainWindow):
         self.accounts_page = AccountsPage(self)
         self.settings_page = SettingsPage(self)
         self._mods_page = ModsPage(self)
-        for p in (self.home, self.modpacks, self.accounts_page, self.settings_page, self._mods_page):
+        self.servers_page = ServersPage(self)
+        for p in (self.home, self.modpacks, self.accounts_page, self.settings_page, self._mods_page,
+                  self.servers_page):
             self.pages.addWidget(p)
         discord_rpc.start()
         self.place_side()
         self.build_side()
         for keys, fn in (("Ctrl+1", lambda: self.go("home")), ("Ctrl+2", lambda: self.go("modpacks")),
-                         ("Ctrl+3", lambda: self.go("accounts")), ("Ctrl+,", lambda: self.go("settings")),
-                         ("Ctrl+\\", self.toggle_sidebar)):
+                         ("Ctrl+3", lambda: self.go("accounts")), ("Ctrl+4", lambda: self.go("servers")),
+                         ("Ctrl+,", lambda: self.go("settings")), ("Ctrl+\\", self.toggle_sidebar)):
             sc = QShortcut(QKeySequence(keys), self)
             sc.activated.connect(fn)
+        if self.settings.get("check_updates", True):
+            self.check_updates()
+
+    # -- updates
+    def check_updates(self, force=False):
+        s = self.settings
+
+        def done(res):
+            self.home.show_update(res if res and res["newer"] and res["version"] != s.get("update_skip") else None)
+            if force:
+                QMessageBox.information(self, "Обновления", f"Доступна версия {res['version']}" if res and
+                                        res["newer"] else "У вас последняя версия" if res else
+                                        "Не удалось проверить — сайт mc-ru.org недоступен")
+
+        self.runner.run(lambda: updates.check(s, force=force), done, lambda e: done(None))
 
     def start(self, fast=False):
         self.root.setCurrentWidget(self.splash)
@@ -2719,7 +3011,8 @@ class MainWindow(QMainWindow):
         self.rail_lay.addWidget(expand, 0, Qt.AlignHCenter)
         self.rail_nav = {}
         for key, tip, icon in (("home", "Главная", "home"), ("modpacks", "Сборки", "cube"),
-                               ("accounts", "Аккаунты", "user"), ("settings", "Настройки", "settings")):
+                               ("accounts", "Аккаунты", "user"), ("settings", "Настройки", "settings"),
+                               ("servers", "Серверы", "server")):
             b = QToolButton()
             b.setIcon(ic(icon))
             b.setIconSize(QSize(18, 18))
@@ -2757,7 +3050,8 @@ class MainWindow(QMainWindow):
         self.side_lay.addSpacing(14)
         self.nav = {}
         for key, text, icon in (("home", "Главная", "home"), ("modpacks", "Сборки", "cube"),
-                                ("accounts", "Аккаунты", "user"), ("settings", "Настройки", "settings")):
+                                ("accounts", "Аккаунты", "user"), ("settings", "Настройки", "settings"),
+                                ("servers", "Серверы", "server")):
             b = QPushButton(text)
             b.setIcon(ic(icon))
             b.setIconSize(QSize(16, 16))
@@ -2789,12 +3083,14 @@ class MainWindow(QMainWindow):
 
     def go(self, key):
         page = {"home": self.home, "modpacks": self.modpacks, "accounts": self.accounts_page,
-                "settings": self.settings_page}[key]
+                "settings": self.settings_page, "servers": self.servers_page}[key]
         self.current_page = key
         if key == "home":
             self.home.refresh()
         elif key == "accounts":
             self.accounts_page.refresh()
+        elif key == "servers":
+            self.servers_page.refresh()
         elif key == "modpacks" and self.modpacks.stack.currentIndex() == 1:
             self.modpacks.refresh_mine()
         self.pages.setCurrentWidget(page)
@@ -2956,7 +3252,7 @@ class MainWindow(QMainWindow):
             return dlg.result_inst
         return None
 
-    def launch(self, inst):
+    def launch(self, inst, server=None):
         if not inst:
             return
         acc = self.account()
@@ -2974,7 +3270,7 @@ class MainWindow(QMainWindow):
         old = self.launches.pop(inst["id"], None)
         if old:
             old.deleteLater()
-        dlg = LaunchDialog(self, inst, acc)
+        dlg = LaunchDialog(self, inst, acc, server)
         self.launches[inst["id"]] = dlg
         dlg.show()
         return dlg
