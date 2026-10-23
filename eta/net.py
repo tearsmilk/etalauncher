@@ -73,6 +73,38 @@ def post_json(url, payload, timeout=20):
     return json.loads(raw.decode("utf-8")) if raw.strip() else None
 
 
+def call_json(method, url, payload=None, form=None, headers=None, timeout=20):
+    """Any method → (status, parsed JSON or None). HTTP errors are *returned*, not raised, so callers can read
+    the body (OAuth `error`, Xbox `XErr`); only network failures raise NetError."""
+    hdrs = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    body = None
+    if form is not None:
+        body = urllib.parse.urlencode(form).encode("utf-8")
+        hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+    elif payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        hdrs["Content-Type"] = "application/json"
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, data=body, method=method, headers=hdrs)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
+            status, raw = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        status, raw = e.code, e.read()
+    except Exception as e:  # noqa: BLE001
+        raise NetError(_explain(e)) from e
+    try:
+        data = json.loads(raw.decode("utf-8")) if raw.strip() else None
+    except ValueError:
+        data = None
+    return status, data
+
+
+def post_form(url, data, timeout=20):
+    """POST application/x-www-form-urlencoded → (status, json); 4xx is returned, not raised."""
+    return call_json("POST", url, form=data, timeout=timeout)
+
+
 def download(url, dest, timeout=60, progress=None, cancel=None, chunk=1 << 16):
     """Stream url → dest (via a .part file). progress(done_bytes, total_bytes); cancel() → True aborts."""
     dest = Path(dest)

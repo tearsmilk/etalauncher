@@ -1,5 +1,5 @@
 // Эта (Eta) — Screens page: Загрузка, Главная (Light / Dark), Главная — стекло (панель справа, свёрнута), Сборки —
-// каталог, Мои сборки, Аккаунты, Новый аккаунт (оффлайн / mc-ru.org), Запуск (подготовка / игра запущена), Настройки (с «Оформлением»).
+// каталог, Мои сборки, Аккаунты, Новый аккаунт (оффлайн / mc-ru.org / Microsoft), Запуск (подготовка / игра запущена), Настройки (с «Оформлением»).
 // Run after 01_ui_kit.js.
 let page = figma.root.children.find(p => p.name === "Screens");
 if (!page) { page = figma.createPage(); page.name = "Screens"; }
@@ -11,6 +11,7 @@ const has = (fam, style) => fonts.some(f => f.fontName.family === fam && f.fontN
 const SANS = "Inter";
 const SERIF = ["Source Serif 4", "Lora", "Merriweather", "Playfair Display"].find(f => has(f, "Regular")) || "Inter";
 const SERIF_I = has(SERIF, "Italic") ? "Italic" : "Regular";
+const MONO = ["JetBrains Mono", "Roboto Mono", "Source Code Pro", "Menlo"].find(f => has(f, "Regular")) || "Inter";
 for (const fn of [{family: SANS, style: "Regular"}, {family: SANS, style: "Medium"}, {family: SANS, style: "Semi Bold"},
                   {family: SERIF, style: "Regular"}, {family: SERIF, style: SERIF_I}]) await figma.loadFontAsync(fn);
 
@@ -221,7 +222,7 @@ MODE = "Light";
 {
   const [f, b] = shell("Аккаунты", 2);
   const hd = al("HORIZONTAL", {name: "Head", align: "CENTER"}); hd.resize(1006, 40); hd.primaryAxisSizingMode = "FIXED"; hd.primaryAxisAlignItems = "SPACE_BETWEEN"; hd.appendChild(txt("Аккаунты", {family: SERIF, size: 28})); hd.appendChild(btn("+ Добавить аккаунт", "accent")); b.appendChild(hd);
-  b.appendChild(txt("Выберите, под каким ником играть. Аккаунт mc-ru.org приносит в игру скин и плащ; вход через Microsoft появится позже.", {color: "muted"}));
+  b.appendChild(txt("Выберите, под каким ником играть. Аккаунт mc-ru.org приносит в игру скин и плащ; аккаунт Microsoft — лицензия и любые серверы.", {color: "muted"}));
   for (const [n, on, sk, hr] of [["Hoka_Neko", true, "#E0AC84", "#5A3A22"], ["Steve_09", false, "#F2C6A0", "#3A2618"], ["Alex", false, "#E0AC84", "#D9A441"]]) {
     const c = al("HORIZONTAL", {name: n, gap: 14, pad: [12, 14, 12, 14], radius: 14, fill: "card", stroke: on ? "accent" : "border", align: "CENTER"}); if (on) c.strokeWeight = 2;
     c.resize(1006, 40); c.primaryAxisSizingMode = "FIXED"; c.appendChild(head(52, sk, hr));
@@ -238,7 +239,7 @@ MODE = "Light";
   b.appendChild(txt("Новый аккаунт", {family: SERIF, size: 18}));
   const sg = al("HORIZONTAL", {name: "Tabs", gap: 0}); const a1 = al("HORIZONTAL", {name: "Offline", pad: [5, 12, 5, 12], fill: "selected", stroke: "accent"}); a1.appendChild(txt("Оффлайн")); sg.appendChild(a1);
   const a15 = al("HORIZONTAL", {name: "mc-ru.org", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a15.appendChild(txt("mc-ru.org")); sg.appendChild(a15);
-  const a2 = al("HORIZONTAL", {name: "Microsoft", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a2.appendChild(txt("Microsoft · скоро", {color: "faint"})); sg.appendChild(a2); b.appendChild(sg);
+  const a2 = al("HORIZONTAL", {name: "Microsoft", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a2.appendChild(txt("Microsoft")); sg.appendChild(a2); b.appendChild(sg);
   const card = al("HORIZONTAL", {name: "Card", gap: 14, pad: 14, radius: 14, fill: "card", stroke: "border"}); card.resize(416, 40); card.primaryAxisSizingMode = "FIXED";
   card.appendChild(head(64, "#F6D5B8", "#6B4A7A")); const cc = al("VERTICAL", {name: "Fields", gap: 4}); cc.layoutGrow = 1; cc.appendChild(txt("Ник"));
   const fld = al("HORIZONTAL", {name: "Field", pad: [4, 8, 4, 8], radius: 6, fill: "input", stroke: "accent"}); fld.resize(300, 26); fld.primaryAxisSizingMode = "FIXED"; fld.appendChild(txt("Kotik_228")); cc.appendChild(fld);
@@ -255,7 +256,7 @@ MODE = "Light";
   const sg = al("HORIZONTAL", {name: "Tabs", gap: 0});
   const a1 = al("HORIZONTAL", {name: "Offline", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a1.appendChild(txt("Оффлайн")); sg.appendChild(a1);
   const a15 = al("HORIZONTAL", {name: "mc-ru.org", pad: [5, 12, 5, 12], fill: "selected", stroke: "accent"}); a15.appendChild(txt("mc-ru.org")); sg.appendChild(a15);
-  const a2 = al("HORIZONTAL", {name: "Microsoft", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a2.appendChild(txt("Microsoft · скоро", {color: "faint"})); sg.appendChild(a2); b.appendChild(sg);
+  const a2 = al("HORIZONTAL", {name: "Microsoft", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a2.appendChild(txt("Microsoft")); sg.appendChild(a2); b.appendChild(sg);
   const hint = txt("Аккаунт сайта mc-ru.org: скин и плащ (в том числе HD и анимированные) подтянутся в игру. Нет аккаунта? Зарегистрируйтесь на mc-ru.org", {size: 11, color: "muted"}); hint.resize(416, 32); hint.textAutoResize = "HEIGHT"; b.appendChild(hint);
   const card = al("VERTICAL", {name: "Card", gap: 6, pad: 14, radius: 14, fill: "card", stroke: "border"}); card.resize(416, 40); card.primaryAxisSizingMode = "FIXED";
   card.appendChild(txt("Ник или email"));
@@ -264,6 +265,26 @@ MODE = "Light";
   const f2 = al("HORIZONTAL", {name: "Password", pad: [4, 8, 4, 8], radius: 6, fill: "input", stroke: "accent"}); f2.resize(388, 26); f2.primaryAxisSizingMode = "FIXED"; f2.appendChild(txt("••••••••")); card.appendChild(f2);
   card.appendChild(txt("Вход на mc-ru.org: скин и плащ подтянутся в игру.", {size: 11, color: "muted"})); b.appendChild(card);
   const rr = al("HORIZONTAL", {name: "Buttons", gap: 8}); rr.appendChild(btn("Отмена")); rr.appendChild(btn("Войти", "accent")); b.appendChild(rr);
+  place(f);
+}
+
+// Новый аккаунт — Microsoft (код устройства: показать код, открыть microsoft.com/link, ждать подтверждения)
+{
+  const f = frame("Новый аккаунт — Microsoft (код устройства)", 460, 360);
+  const b = al("VERTICAL", {name: "Dialog", gap: 10, pad: [18, 22, 18, 22]}); b.resize(460, 360); b.primaryAxisSizingMode = "FIXED"; b.counterAxisSizingMode = "FIXED"; f.appendChild(b);
+  b.appendChild(txt("Новый аккаунт", {family: SERIF, size: 18}));
+  const sg = al("HORIZONTAL", {name: "Tabs", gap: 0});
+  const a1 = al("HORIZONTAL", {name: "Offline", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a1.appendChild(txt("Оффлайн")); sg.appendChild(a1);
+  const a15 = al("HORIZONTAL", {name: "mc-ru.org", pad: [5, 12, 5, 12], fill: "card", stroke: "border"}); a15.appendChild(txt("mc-ru.org")); sg.appendChild(a15);
+  const a2 = al("HORIZONTAL", {name: "Microsoft", pad: [5, 12, 5, 12], fill: "selected", stroke: "accent"}); a2.appendChild(txt("Microsoft")); sg.appendChild(a2); b.appendChild(sg);
+  const hint = txt("Лицензионный аккаунт Microsoft: скин, плащ и доступ на любые серверы.", {size: 11, color: "muted"}); hint.resize(416, 16); hint.textAutoResize = "HEIGHT"; b.appendChild(hint);
+  const card = al("VERTICAL", {name: "Card", gap: 8, pad: 14, radius: 14, fill: "card", stroke: "border"}); card.resize(416, 40); card.primaryAxisSizingMode = "FIXED";
+  const intro = txt("Введите этот код на странице Microsoft и подтвердите вход:", {size: 11, color: "muted"}); intro.resize(388, 16); intro.textAutoResize = "HEIGHT"; card.appendChild(intro);
+  const code = al("HORIZONTAL", {name: "DeviceCode", pad: [10, 14, 10, 14], radius: 10, fill: "input", stroke: "border", align: "CENTER"}); code.resize(388, 52); code.primaryAxisSizingMode = "FIXED"; code.primaryAxisAlignItems = "CENTER";
+  code.appendChild(txt("ABCD-1234", {family: MONO, size: 26})); card.appendChild(code);
+  const br = al("HORIZONTAL", {name: "Buttons", gap: 8}); br.appendChild(btn("Открыть microsoft.com/link")); br.appendChild(btn("Скопировать код")); card.appendChild(br);
+  card.appendChild(txt("Ожидаем подтверждения… окно можно не закрывать, вход завершится сам.", {size: 11, color: "muted"})); b.appendChild(card);
+  const rr = al("HORIZONTAL", {name: "Buttons", gap: 8}); rr.appendChild(btn("Отмена")); const w = btn("Войти через Microsoft", "accent"); w.opacity = 0.5; rr.appendChild(w); b.appendChild(rr);
   place(f);
 }
 

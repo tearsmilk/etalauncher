@@ -1,5 +1,6 @@
-"""Accounts. For now only offline ("пиратка") accounts: a nickname and the UUID the vanilla server gives an offline
-player — UUID.nameUUIDFromBytes("OfflinePlayer:" + name), an MD5 based version-3 UUID."""
+"""Accounts: offline ("пиратка" — a nickname and the UUID the vanilla server gives an offline player,
+UUID.nameUUIDFromBytes("OfflinePlayer:" + name), an MD5 based version-3 UUID), mc-ru.org (site login, Yggdrasil
+tokens) and Microsoft (device-code login, Minecraft token + MS refresh token)."""
 import hashlib
 import re
 import time
@@ -62,6 +63,15 @@ class AccountStore:
         self.items = [a for a in self.items if a["uuid"] != uuid_]
         acc = {"type": "mcru", "name": name, "uuid": uuid_, "access_token": access_token,
                "client_token": client_token, "login": login or name, "created": time.time(), "last_used": 0}
+        self.items.append(acc)
+        self.save()
+        return acc
+
+    def add_msa(self, name, uuid_, mc_token, mc_expires, refresh_token, xuid=""):
+        """A Microsoft account (device-code login → Minecraft token); replaces an older entry with the same uuid."""
+        self.items = [a for a in self.items if a["uuid"] != uuid_]
+        acc = {"type": "msa", "name": name, "uuid": uuid_, "mc_token": mc_token, "mc_expires": float(mc_expires),
+               "refresh_token": refresh_token, "xuid": xuid or "", "created": time.time(), "last_used": 0}
         self.items.append(acc)
         self.save()
         return acc

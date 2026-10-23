@@ -24,7 +24,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import __version__, mcru, net
+from . import __version__, mcru, msa, net
 from .modrinth import InstallError, content_versions
 from .paths import data_dir
 
@@ -591,7 +591,13 @@ class Game:
                 injector=None):
         inst = inst or {}
         mcru_acc = acc.get("type") == "mcru"
-        token = (acc.get("access_token") or "0") if mcru_acc else "0"
+        msa_acc = acc.get("type") == "msa"
+        if mcru_acc:
+            token, user_type = acc.get("access_token") or "0", "mojang"
+        elif msa_acc:
+            token, user_type = acc.get("mc_token") or "0", "msa"
+        else:
+            token, user_type = "0", "legacy"
         w, h = int(settings.get("width") or 0), int(settings.get("height") or 0)
         fullscreen = bool(settings.get("fullscreen"))
         features = {"is_demo_user": False, "has_custom_resolution": bool(w and h) and not fullscreen,
@@ -606,11 +612,12 @@ class Game:
             "assets_root": str(assets_root), "assets_index_name": ai.get("id", v.get("assets", "legacy")),
             "auth_uuid": acc["uuid"].replace("-", ""),
             "auth_access_token": token, "auth_session": token,
-            "user_type": "mojang" if mcru_acc else "legacy", "version_type": v.get("type", "release"),
+            "user_type": user_type, "version_type": v.get("type", "release"),
             "user_properties": "{}",
             "natives_directory": str(natives_dir), "launcher_name": "eta", "launcher_version": __version__,
             "classpath": cp_str, "classpath_separator": os.pathsep, "library_directory": str(self.root / "libraries"),
-            "clientid": "", "auth_xuid": "", "resolution_width": str(w or 854), "resolution_height": str(h or 480),
+            "clientid": msa.CLIENT_ID if msa_acc else "", "auth_xuid": (acc.get("xuid") or "") if msa_acc else "",
+            "resolution_width": str(w or 854), "resolution_height": str(h or 480),
             "game_assets": str(virtual if virtual.is_dir() else assets_root), "quickPlayPath": "", "quickPlaySingleplayer": "",
             "quickPlayMultiplayer": "", "quickPlayRealms": "",
         }
@@ -685,6 +692,10 @@ class Game:
             if settings.get("csl_skins", True) and loader in self.MOD_LOADERS:
                 self._p("auth", 0, 0, "CustomSkinLoader…")
                 self.ensure_csl(game_dir, mc, loader)
+            self._check()
+        elif acc.get("type") == "msa":
+            self._p("auth", 0, 0, "Вход Microsoft…")
+            out["account"] = msa.ensure_session(acc)
             self._check()
         self._p("launch", 0, 1, "Собираем команду запуска…")
         cmd = self.command(v, java, game_dir, acc, settings, natives_dir, cp, log_arg, inst, injector)

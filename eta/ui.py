@@ -7,14 +7,14 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRectF, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPainterPath, QShortcut
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPainter, QPainterPath, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu,
                                QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea,
                                QSizePolicy, QSlider, QSpinBox,
                                QStackedWidget, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, LOGO, __version__, backgrounds, discord_rpc, icons, launch, mcru, net, theme
+from . import APP_NAME, LOGO, __version__, backgrounds, discord_rpc, icons, launch, mcru, msa, net, theme
 from .accounts import AccountStore, offline_uuid, validate
 from .catalog import CATEGORIES, LOADER_TAGS, SORTS, SOURCES, DemoProvider, fmt_count
 from .instances import LOADERS, MC_VERSIONS, InstanceStore, describe
@@ -129,20 +129,45 @@ def skin_head(pix, size, radius):
     return res
 
 
+def head_source(acc):
+    """URL of the real head for online accounts (None for offline) and whether it is a full skin texture."""
+    if not acc:
+        return None, False
+    if acc.get("type") == "mcru":
+        return mcru.head_url(acc["name"]), True
+    if acc.get("type") == "msa":
+        return msa.head_url(acc["uuid"]), False   # crafatar already returns the face with the hat layer
+    return None, False
+
+
+def real_head(pix, is_skin, size, radius):
+    if is_skin:
+        return skin_head(pix, size, radius)
+    if pix.isNull():
+        return None
+    # pixel-scale first so the 8×8 face stays crisp, then the rounded clip
+    return rounded(pix.scaled(size * 2, size * 2, Qt.IgnoreAspectRatio, Qt.FastTransformation), size, radius)
+
+
 def set_head(win, lbl, acc, size, radius):
-    """pixel_head now; for mc-ru.org accounts the real skin head when it arrives (icon cache → network)."""
+    """pixel_head now; for mc-ru.org / Microsoft accounts the real head when it arrives (icon cache → network)."""
     name = acc["name"] if acc else "?"
     lbl.setPixmap(pixel_head(name, size, radius))
-    if acc and acc.get("type") == "mcru" and getattr(win, "icons", None) is not None:
+    url, is_skin = head_source(acc)
+    if url and getattr(win, "icons", None) is not None:
         def done(pix, lbl=lbl):
-            head = skin_head(pix, size, radius)
+            head = real_head(pix, is_skin, size, radius)
             if head:
                 lbl.setPixmap(head)
-        win.icons.get(mcru.head_url(acc["name"]), done)
+        win.icons.get(url, done)
+
+
+ACCOUNT_KINDS = {"mcru": "Аккаунт mc-ru.org", "msa": "Аккаунт Microsoft"}
+ACCOUNT_SHORT = {"mcru": "mc-ru.org", "msa": "Microsoft"}
 
 
 def account_kind(acc):
-    return "Аккаунт mc-ru.org" if acc.get("type") == "mcru" else "Оффлайн-аккаунт"
+    return ACCOUNT_KINDS.get(acc.get("type"), "Оффлайн-аккаунт")
 
 
 LOADER_COLORS = {"fabric": "orange", "forge": "blue", "neoforge": "red", "quilt": "purple", "vanilla": "green"}
@@ -1568,16 +1593,18 @@ class AddAccountDialog(QDialog):
         self.site = QPushButton("mc-ru.org")
         self.site.setObjectName("Seg")
         self.site.setCheckable(True)
-        ms = QPushButton("Microsoft · скоро")
-        ms.setObjectName("Seg")
-        ms.setEnabled(False)
-        ms.setToolTip("Вход через Microsoft появится вместе с загрузкой игры")
-        for b in (self.off, self.site, ms):
+        self.ms = QPushButton("Microsoft")
+        self.ms.setObjectName("Seg")
+        self.ms.setCheckable(True)
+        if not msa.available():
+            self.ms.setEnabled(False)
+            self.ms.setToolTip("Нужен Client ID приложения Azure — см. eta/README.md")
+        for b in (self.off, self.site, self.ms):
             seg.addWidget(b)
-        self.seg.addButton(self.off)
-        self.seg.addButton(self.site)
+            self.seg.addButton(b)
         self.off.toggled.connect(lambda on: on and self.set_mode("offline"))
         self.site.toggled.connect(lambda on: on and self.set_mode("mcru"))
+        self.ms.toggled.connect(lambda on: on and self.set_mode("msa"))
         seg.addStretch(1)
         lay.addLayout(seg)
         self.hint = label("Оффлайн-аккаунт работает без лицензии: для одиночной игры и серверов в "
@@ -1629,6 +1656,46 @@ class AddAccountDialog(QDialog):
         self.site_msg = label("Вход на mc-ru.org: скин и плащ подтянутся в игру.", "Hint", wrap=True)
         v.addWidget(self.site_msg)
         self.stack.addWidget(box)
+        # Microsoft: device code
+        mbox = QFrame()
+        mbox.setObjectName("Box")
+        mv = QVBoxLayout(mbox)
+        mv.setContentsMargins(14, 14, 14, 14)
+        mv.setSpacing(8)
+        self.ms_intro = label("Нажмите «Войти через Microsoft»: появится код, который нужно ввести на "
+                              "microsoft.com/link в браузере.", "Muted", wrap=True)
+        mv.addWidget(self.ms_intro)
+        self.ms_code = QLabel("")
+        self.ms_code.setObjectName("DeviceCode")
+        self.ms_code.setAlignment(Qt.AlignCenter)
+        self.ms_code.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        f = self.ms_code.font()
+        f.setFamily("Menlo" if IS_MAC else "Consolas")
+        f.setPointSize(26)
+        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 4)
+        self.ms_code.setFont(f)
+        self.ms_code.hide()
+        mv.addWidget(self.ms_code)
+        mrow = QHBoxLayout()
+        self.ms_open = QPushButton("Открыть microsoft.com/link")
+        self.ms_open.setIcon(ic("globe"))
+        self.ms_open.hide()
+        self._ms_uri = "https://www.microsoft.com/link"
+        self.ms_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self._ms_uri)))
+        self.ms_copy = QPushButton("Скопировать код")
+        self.ms_copy.setIcon(ic("copy"))
+        self.ms_copy.hide()
+        self.ms_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.ms_code.text()))
+        mrow.addWidget(self.ms_open)
+        mrow.addWidget(self.ms_copy)
+        mrow.addStretch(1)
+        mv.addLayout(mrow)
+        self.ms_msg = label("", "Hint", wrap=True)
+        mv.addWidget(self.ms_msg)
+        self.stack.addWidget(mbox)
+        self.ms_cancel = False
+        self._ms_signals = _MsaSignals()
+        self._ms_signals.code.connect(self._ms_show_code)
         row = QHBoxLayout()
         row.addStretch(1)
         c = QPushButton("Отмена")
@@ -1642,19 +1709,28 @@ class AddAccountDialog(QDialog):
         self.busy = False
         self.update_preview()
 
+    MODES = ("offline", "mcru", "msa")
+
     def set_mode(self, mode):
         self.mode = mode
-        self.stack.setCurrentIndex(0 if mode == "offline" else 1)
+        self.stack.setCurrentIndex(self.MODES.index(mode))
         if mode == "offline":
             self.hint.setText("Оффлайн-аккаунт работает без лицензии: для одиночной игры и серверов в "
                               "оффлайн-режиме.")
             self.ok.setText("Создать")
-        else:
+        elif mode == "mcru":
             self.hint.setText("Аккаунт сайта mc-ru.org: скин и плащ (в том числе HD и анимированные) подтянутся "
                               f"в игру. Нет аккаунта? <a href=\"{mcru.SITE}/#account\">Зарегистрируйтесь на "
                               "mc-ru.org</a>")
             self.ok.setText("Войти")
+        else:
+            self.hint.setText("Лицензионный аккаунт Microsoft: скин, плащ и доступ на любые серверы.")
+            self.ok.setText("Войти через Microsoft")
         self.update_preview()
+
+    def reject(self):
+        self.ms_cancel = True
+        super().reject()
 
     def _set_msg(self, w, text, kind):
         w.setText(text)
@@ -1665,6 +1741,9 @@ class AddAccountDialog(QDialog):
     def update_preview(self):
         if self.mode == "mcru":
             self.ok.setEnabled(bool(self.login.text().strip()) and bool(self.password.text()) and not self.busy)
+            return
+        if self.mode == "msa":
+            self.ok.setEnabled(not self.busy)
             return
         name = self.name.text().strip()
         self.head.setPixmap(pixel_head(name or "?", 64, 10))
@@ -1684,6 +1763,9 @@ class AddAccountDialog(QDialog):
             self.result_acc = self.win.accounts.add_offline(self.name.text().strip())
             self.accept()
             return
+        if self.mode == "msa":
+            self._ms_login()
+            return
         login, password = self.login.text().strip(), self.password.text()
         self.busy = True
         self.ok.setEnabled(False)
@@ -1701,6 +1783,45 @@ class AddAccountDialog(QDialog):
             self.update_preview()
 
         self.win.runner.run(lambda: mcru.authenticate(login, password), done, failed)
+
+    # -- Microsoft device code
+    def _ms_login(self):
+        self.busy = True
+        self.ms_cancel = False
+        self.ok.setEnabled(False)
+        self.ms_code.hide()
+        self.ms_open.hide()
+        self.ms_copy.hide()
+        self._set_msg(self.ms_msg, "Запрашиваем код у Microsoft…", "Hint")
+        sig = self._ms_signals
+
+        def done(r):
+            self.busy = False
+            self.result_acc = self.win.accounts.add_msa(r["name"], r["uuid"], r["mc_token"], r["mc_expires"],
+                                                        r["refresh_token"], r.get("xuid", ""))
+            self.accept()
+
+        def failed(e):
+            self.busy = False
+            if not isinstance(e, msa.Cancelled):
+                self._set_msg(self.ms_msg, str(e), "Warn")
+            self.update_preview()
+
+        self.win.runner.run(lambda: msa.login_device_code(on_code=sig.code.emit, cancel=lambda: self.ms_cancel),
+                            done, failed)
+
+    def _ms_show_code(self, code, uri, message):
+        self.ms_intro.setText("Введите этот код на странице Microsoft и подтвердите вход:")
+        self.ms_code.setText(code)
+        self.ms_code.show()
+        self._ms_uri = uri or self._ms_uri
+        self.ms_open.show()
+        self.ms_copy.show()
+        self._set_msg(self.ms_msg, "Ожидаем подтверждения… окно можно не закрывать, вход завершится сам.", "Hint")
+
+
+class _MsaSignals(QObject):
+    code = Signal(str, str, str)
 
 
 class AccountsPage(QScrollArea):
@@ -1726,7 +1847,7 @@ class AccountsPage(QScrollArea):
         head.addWidget(add)
         lay.addLayout(head)
         lay.addWidget(label("Выберите, под каким ником играть. Аккаунт mc-ru.org приносит в игру скин и плащ; "
-                            "вход через Microsoft появится позже.", "Muted", wrap=True))
+                            "аккаунт Microsoft — лицензия и любые серверы.", "Muted", wrap=True))
         sel = self.win.settings.get("selected_account")
         if not self.win.accounts.items:
             empty = QFrame()
@@ -1737,7 +1858,8 @@ class AccountsPage(QScrollArea):
             i.setPixmap(pixel_head("Steve", 72, 12))
             v.addWidget(i, 0, Qt.AlignHCenter)
             v.addWidget(label("Аккаунтов пока нет", "H2"), 0, Qt.AlignHCenter)
-            v.addWidget(label("Создайте оффлайн-аккаунт (нужен только ник) или войдите через mc-ru.org.", "Muted"),
+            v.addWidget(label("Создайте оффлайн-аккаунт (нужен только ник) или войдите через mc-ru.org / Microsoft.",
+                              "Muted"),
                         0, Qt.AlignHCenter)
             b = QPushButton("Создать аккаунт")
             b.setObjectName("Accent")
@@ -1760,6 +1882,8 @@ class AccountsPage(QScrollArea):
             top.addWidget(label(a["name"], "CardTitle"))
             if a.get("type") == "mcru":
                 top.addWidget(tag("mc-ru.org", "orange"))
+            elif a.get("type") == "msa":
+                top.addWidget(tag("Microsoft", "green"))
             if on:
                 top.addWidget(label("Выбран", "Badge"))
             top.addStretch(1)
@@ -2263,7 +2387,7 @@ class LaunchDialog(QDialog):
         frac = done / total if total else 0.0
         self.bar.setValue(int(lo + (hi - lo) * frac))
         names = {"version": "Сведения о версии", "java": "Java", "loader": "Загрузчик модов",
-                 "libraries": "Библиотеки игры", "assets": "Ресурсы игры", "auth": "Вход mc-ru.org",
+                 "libraries": "Библиотеки игры", "assets": "Ресурсы игры", "auth": "Вход в аккаунт",
                  "launch": "Запуск"}
         self.stage.setText(names.get(stage, stage) + "…")
         self.detail.setText(f"{text} — {done} из {total}" if total and total > 1 else text)
@@ -2544,9 +2668,10 @@ class MainWindow(QMainWindow):
         acc = self.account()
         head = QToolButton()
         head.setIcon(QIcon(pixel_head(acc["name"] if acc else "?", 30, 6)))
-        if acc and acc.get("type") == "mcru":
-            self.icons.get(mcru.head_url(acc["name"]),
-                           lambda pix, b=head: b.setIcon(QIcon(skin_head(pix, 30, 6) or pixel_head(acc["name"], 30, 6))))
+        url, is_skin = head_source(acc)
+        if url:
+            self.icons.get(url, lambda pix, b=head: b.setIcon(
+                QIcon(real_head(pix, is_skin, 30, 6) or pixel_head(acc["name"], 30, 6))))
         head.setIconSize(QSize(30, 30))
         head.setToolTip(acc["name"] if acc else "Добавить аккаунт")
         head.clicked.connect(lambda: self.go("accounts"))
@@ -2588,7 +2713,7 @@ class MainWindow(QMainWindow):
         col = QVBoxLayout()
         col.setSpacing(0)
         n = label(acc["name"] if acc else "Нет аккаунта", "ChipName")
-        t = label(("mc-ru.org" if acc.get("type") == "mcru" else "Оффлайн") if acc else "Добавить…", "Hint")
+        t = label(ACCOUNT_SHORT.get(acc.get("type"), "Оффлайн") if acc else "Добавить…", "Hint")
         for w in (n, t):
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
             col.addWidget(w)

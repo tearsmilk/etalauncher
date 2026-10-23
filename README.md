@@ -42,7 +42,7 @@ hide with «Фильтры».
 | Главная | Greeting, compact card of the selected instance, **Играть** (downloads what is missing, then runs the game), instance switcher, game folder, recent instances, launcher news |
 | Сборки → Каталог | Modrinth-like browser: search, sources (Modrinth / CurseForge), loader chips (Fabric / Forge / NeoForge / Quilt), game version, categories, sort, «show more»; project page (description, versions); install dialog → creates an instance |
 | Сборки → Мои сборки | Instance cards: play, select, open folder, rename, copy, delete; «Создать сборку» (name, game version, loader) |
-| Аккаунты | Offline accounts (nickname 3–16 `[A-Za-z0-9_]`, UUID = `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)` like vanilla offline servers), procedural pixel heads, select / copy UUID / delete; **mc-ru.org** accounts (site login, real skin head, see below); Microsoft tab reserved |
+| Аккаунты | Offline accounts (nickname 3–16 `[A-Za-z0-9_]`, UUID = `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)` like vanilla offline servers), procedural pixel heads, select / copy UUID / delete; **mc-ru.org** accounts (site login, real skin head, see below); **Microsoft** accounts (device-code login, see below) |
 | Настройки | Оформление (see above), game folder, memory slider (system RAM), Java (auto-detect / browse), JVM args, window size, full screen, theme, close on launch, console, default source, parallel downloads |
 
 ## Аккаунт mc-ru.org
@@ -62,10 +62,48 @@ NeoForge лаунчер докачивает мод с Modrinth в `mods/` (ма
 Файлы: `eta/mcru.py` (API сайта, authlib-injector), `launch.py` (`mcru_session`, `ensure_csl`, `csl_config`),
 `tests/test_mcru.py` (локальный фейковый Yggdrasil).
 
+## Аккаунт Microsoft
+
+«Добавить аккаунт → Microsoft»: лицензионный вход по коду устройства — лаунчер показывает код вида `ABCD-1234`,
+кнопки «Открыть microsoft.com/link» и «Скопировать код»; после подтверждения в браузере вход завершается сам.
+Цепочка та же, что у официального лаунчера: OAuth device code (`login.microsoftonline.com/consumers`, scope
+`XboxLive.signin offline_access`) → Xbox Live (`user.auth.xboxlive.com`) → XSTS (`xsts.auth.xboxlive.com`, relying
+party `rp://api.minecraftservices.com/`) → `api.minecraftservices.com/authentication/login_with_xbox` →
+`entitlements/mcstore` → `minecraft/profile`. В `accounts.json` хранятся токен Minecraft (`mc_token`, ~24 ч),
+`mc_expires`, `refresh_token` Microsoft и `xuid`; перед запуском `msa.ensure_session` продлевает сессию через
+refresh token. В команду идут `--accessToken <mc_token> --userType msa --xuid … --clientId <Client ID>`; скин и
+плащ отдаёт сам Mojang, модов и authlib-injector не нужно. Голова на карточке — с crafatar.com по UUID.
+
+### Что нужно, чтобы вход заработал
+
+Вкладка «Microsoft» в диалоге выключена, пока у лаунчера нет **Client ID** — идентификатора приложения в Azure:
+
+1. [portal.azure.com](https://portal.azure.com) → Microsoft Entra ID → **App registrations → New registration**.
+   Name — например `Eta Launcher`; Supported account types — **Personal Microsoft accounts only**; Redirect URI —
+   platform **Mobile and desktop applications**, значение `https://login.microsoftonline.com/common/oauth2/nativeclient`.
+2. В созданном приложении: **Authentication → Advanced settings → Allow public client flows = Yes** (без этого
+   device code не выдаётся). Секрет клиента не нужен.
+3. **API permissions** можно не трогать: `XboxLive.signin` запрашивается динамически как делегированное разрешение
+   (при первом входе Microsoft спросит согласие).
+4. Скопируйте **Application (client) ID** (вид `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`) с страницы Overview.
+5. Mojang должна одобрить этот ID для `api.minecraftservices.com`: форма
+   [aka.ms/mce-reviewappid](https://aka.ms/mce-reviewappid) (название лаунчера, ссылка на репозиторий, Client ID).
+   До одобрения `login_with_xbox` отвечает 403 — лаунчер покажет «Приложение ещё не одобрено Mojang».
+
+Куда положить ID: переменная окружения `ETA_MSA_CLIENT_ID` (удобно для сборок: `env:` в
+`.github/workflows/eta-*.yml`) или константа `CLIENT_ID` в `eta/eta/msa.py`. Он не секретный — его можно
+коммитить.
+
+Ошибки входа и что они значат: «нет профиля Xbox» — создать на xbox.com; «Xbox Live недоступен в стране»;
+«нужна проверка возраста»; «детский аккаунт — добавить в семью»; «На этом аккаунте нет Minecraft: Java Edition»;
+«нет профиля Minecraft» — зайти официальным лаунчером и придумать ник; «Код устарел» — нажать «Войти» снова.
+Файлы: `eta/msa.py`, `launch.py` (`prepare` → `msa.ensure_session`, `command`), `tests/test_msa.py` (локальный фейк
+всей цепочки).
+
 ## Files
 
 `eta/accounts.py` · `eta/instances.py` · `eta/catalog.py` (DemoProvider) · `eta/modrinth.py` (ModrinthProvider,
-`.mrpack` install) · `eta/net.py` (HTTPS via certifi, background runner, icon cache) · `eta/mcru.py` (mc-ru.org) · `eta/launch.py` (Minecraft, Java, loaders,
+`.mrpack` install) · `eta/net.py` (HTTPS via certifi, background runner, icon cache) · `eta/mcru.py` (mc-ru.org) · `eta/msa.py` (Microsoft) · `eta/launch.py` (Minecraft, Java, loaders,
 command line) · `eta/backgrounds.py` · `eta/widgets.py` (pixel heads, block icons, banner) · `eta/ui.py`.
 Data lives in `~/Library/Application Support/Eta` on macOS, `%APPDATA%\Eta` on Windows (`settings.json`,
 `accounts.json`, `instances.json`).

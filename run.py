@@ -42,6 +42,10 @@ def selftest():
     from tests.test_mcru import run as mcru_test
 
     report["mcru"] = mcru_test(tmp)["calls"]
+    # Microsoft accounts: fake device-code / Xbox / XSTS / Minecraft services chain, refresh, command
+    from tests.test_msa import run as msa_test
+
+    report["msa"] = msa_test(tmp)["calls"]
     from eta import theme
     from eta.modrinth import normalize
 
@@ -123,6 +127,23 @@ def selftest():
     assert ad.ok.isEnabled()
     ad.off.setChecked(True)
     assert ad.mode == "offline" and ad.ok.text() == "Создать" and ad.ok.isEnabled()
+    # Microsoft tab: disabled without a Client ID, enabled (device-code UI) with one
+    from eta import msa as _msa
+    assert ad.ms.isEnabled() == _msa.available()
+    old_cid, _msa.CLIENT_ID = _msa.CLIENT_ID, "test-client"
+    ad2 = AddAccountDialog(win)
+    assert ad2.ms.isEnabled()
+    ad2.ms.setChecked(True)
+    assert ad2.mode == "msa" and ad2.ok.text() == "Войти через Microsoft" and ad2.ok.isEnabled()
+    ad2._ms_show_code("ABCD-1234", "https://www.microsoft.com/link", "")
+    assert ad2.ms_code.text() == "ABCD-1234" and not ad2.ms_code.isHidden() and "Ожидаем" in ad2.ms_msg.text()
+    _msa.CLIENT_ID = old_cid
+    acc_ms = accounts.add_msa("Notch", "069a79f4-44e9-4726-a5be-fca90e38aaf5", "mc", time.time() + 3600, "rt", "1")
+    assert AccountStore().get(acc_ms["uuid"])["type"] == "msa"
+    win.select_account(acc_ms["uuid"])
+    win.go("accounts")
+    app.processEvents()
+    accounts.remove(acc_ms["uuid"])
     acc_site = accounts.add_mcru("Hoka_Neko", "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", "tok", "ct", "hoka@example.com")
     assert AccountStore().get(acc_site["uuid"])["type"] == "mcru" and accounts.update(acc_site["uuid"], access_token="t2")
     win.select_account(acc_site["uuid"])
