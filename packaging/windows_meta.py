@@ -72,4 +72,4 @@ if __name__ == "__main__":
     build.mkdir(exist_ok=True)
     make_ico(ROOT / "assets" / "icon.png", build / "Eta.ico")
     make_version_file(build / "version_info.txt", version)
-    print(f"Eta.ico + version_info.txt ({version}) → {build}")
+    print(f"Eta.ico + version_info.txt ({version}) -> {build}")
