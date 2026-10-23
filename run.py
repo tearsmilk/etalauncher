@@ -46,6 +46,10 @@ def selftest():
     from tests.test_msa import run as msa_test
 
     report["msa"] = msa_test(tmp)["calls"]
+    # community servers: server list ping on a fake server, MOTD, quick play / --server, list cache, update check
+    from tests.test_servers import run as servers_test
+
+    report["servers"] = servers_test(tmp)["calls"]
     from eta import theme
     from eta.modrinth import normalize
 
@@ -60,10 +64,19 @@ def selftest():
     from eta.ui import AddAccountDialog, CreateInstanceDialog, InstallDialog, MainWindow, ProjectDialog
 
     settings = Settings()
+    settings.update(check_updates=False)   # no network from the UI test
     instances = InstanceStore()
     win = MainWindow(app, settings, accounts, instances, prov)
     win.resize(1240, 800)
     win.show()
+    # servers page renders the cached list (written by tests.test_servers) and the update banner shows/hides
+    win.go("servers")
+    app.processEvents()
+    assert win.servers_page.list.count() >= 2 and win.nav["servers"].isChecked()
+    win.home.show_update({"version": "9.9.9", "url": "", "newer": True})
+    assert win.home.update_bar.isVisible() or not win.home.isVisible()
+    win.home._skip_update()
+    assert settings["update_skip"] == "9.9.9" and win.home.update_bar.isHidden()
     win.start(fast=True)
     t0 = time.monotonic()
     while win.root.currentIndex() == 0 and time.monotonic() - t0 < 5:

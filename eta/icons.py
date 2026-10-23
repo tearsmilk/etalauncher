@@ -272,6 +272,13 @@ def pixmap(name, ink="#141413", accent="#D97757", size=40, rec="#D64545"):
         rect(3, 5, 18, 14, 2)
         poly((7, 10), (10, 12.5), (7, 15), pen_=acc)
         poly((12, 15), (16, 15))
+    elif name == "server":
+        rect(3.5, 4, 17, 6.5, 1.5)
+        rect(3.5, 13.5, 17, 6.5, 1.5)
+        rect(6.5, 6.5, 1.5, 1.5, 0.4, fill=accent, pen_=acc)
+        rect(6.5, 16, 1.5, 1.5, 0.4, fill=accent, pen_=acc)
+        poly((11, 7.25), (17, 7.25))
+        poly((11, 16.75), (17, 16.75))
     elif name == "logo":
         text("η", 0, -1, 24, 24, 20, italic=True, color=accent)
     else:
