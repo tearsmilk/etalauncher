@@ -1,0 +1,62 @@
+name: Эта — Eta (Windows x64 .exe)
+
+# push only: for pull_request GitHub matches `paths` against the whole PR diff, which rebuilt every app
+on:
+  push:
+    branches: ["**"]
+    tags:
+      - "eta-v*"
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Опубликовать релиз eta-v<версия> (пусто — просто собрать)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+        shell: pwsh
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+      ETA_CURSEFORGE_KEY: ${{ secrets.ETA_CURSEFORGE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: -r requirements-build.txt
+
+      - name: Self-test from source
+        run: python run.py --selftest
+
+      - name: Build Eta.exe (includes Eta.exe --selftest)
+        run: |
+          if ("$env:GITHUB_REF" -like "refs/tags/eta-v*") { $env:APP_VERSION = "$env:GITHUB_REF" -replace "^refs/tags/eta-v", "" }
+          if ("${{ inputs.release_version }}" -ne "") { $env:APP_VERSION = "${{ inputs.release_version }}" }
+          pwsh packaging/build_windows.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Eta-Windows-x64
+          path: |
+            dist/Eta-*-windows-x64.exe
+            dist/Прочти меня.txt
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/eta-v') || inputs.release_version != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_version != '' && format('eta-v{0}', inputs.release_version) || github.ref_name }}
+          name: Эта ${{ inputs.release_version != '' && inputs.release_version || github.ref_name }}
+          files: dist/Eta-*-windows-x64.exe

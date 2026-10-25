@@ -15,7 +15,7 @@ from PySide6.QtGui import QPixmap
 from . import __version__
 from .paths import data_dir
 
-USER_AGENT = f"tearsmilk/eta-launcher/{__version__} (github.com/tearsmilk/amkawa-lang)"
+USER_AGENT = f"tearsmilk/eta-launcher/{__version__} (github.com/tearsmilk/etalauncher)"
 
 
 def _context():
